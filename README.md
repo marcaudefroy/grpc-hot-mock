@@ -28,6 +28,7 @@
 
 - **Hot‑reloadable Protos**: Upload and compile `.proto` files on the fly via HTTP.
 - **Well‑Known Types Auto‑Loading**: Well-known types like `google.protobuf.Timestamp` is automatically loaded (no need to post .proto file for thoses types).
+- **Automated multi‑file import resolution**: upload multiple `.proto` files in a single request and compile them together, automatically resolving all inter‑file dependencies.
 - **Dynamic Reflection**: Custom Reflection v1 service serving in-memory descriptors.
 - **Dynamic Mocks**: Define mocks at runtime for any service/method, returning proper Protobuf messages.
 - **Optional Proxy**: Forward unmocked calls to a real backend via `--proxy` flag.
@@ -36,10 +37,9 @@
 ### Currently Not Supported (Coming soon)
 
 - **Error Custom**: Mock doesn't support custom error details.
-- **Advanced Matcher** : Mock doesn't support advancded matcher (regexp, eq, etc.. on payload).
-- **Automated Multi‑file Import Resolution**: Bulk or recursive import loading; need to upload each `.proto` manually in correct order and path.
-- **Advanced Auth Schemes**: Beyond simple metadata forwarding, OAuth token refresh interceptors, or other custom credential flows.
 - **Streaming RPCs**: Client‑streaming, server‑streaming, and bidirectional RPCs.
+- **Advanced Matcher** : Mock doesn't support advancded matcher (regexp, eq, etc.. on payload).
+- **Advanced Auth Schemes**: Beyond simple metadata forwarding, OAuth token refresh interceptors, or other custom credential flows.
 - **Log system**: Logging system is not implemented yet.
 
 ## Prerequisites
@@ -51,7 +51,7 @@
 ## Installation
 
 ```bash
-git clone https://github.com/yourorg/grpc-hot-mock.git
+git clone https://github.com/marcaudefroy/grpc-hot-mock.git
 cd grpc-hot-mock
 go mod tidy
 ```

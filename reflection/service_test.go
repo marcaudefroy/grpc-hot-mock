@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	reflectionv1 "google.golang.org/grpc/reflection/grpc_reflection_v1"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 // fakeStream implements reflectionv1.ServerReflection_ServerReflectionInfoServer
@@ -78,97 +79,153 @@ func (f *fakeStream) SendHeader(metadata metadata.MD) error {
 func (f *fakeStream) SetTrailer(metadata metadata.MD) {
 }
 
-func TestRegisterProtoFileAndGetDescriptor(t *testing.T) {
+// Test batch ingest and compile order independence
+func TestCompileAndRegister_BatchOrderIndependence(t *testing.T) {
 	registry := reflection.NewDefaultDescriptorRegistry()
-	helloProto := `syntax = "proto3";
-package example;
 
-message HelloRequest { string name = 1; }
-message HelloReply   { string message = 1; }
-service Greeter {
-  rpc SayHello (HelloRequest) returns (HelloReply);
-}`
+	// Define two protos: common and service, in reverse order
+	serviceProto := `
+syntax = "proto3";
 
-	// Register the proto file
-	if err := registry.RegisterProtoFile("hello.proto", helloProto); err != nil {
-		t.Fatalf("RegisterProtoFile failed: %v", err)
-	}
+package example.foo;
 
-	// Retrieve descriptors
-	if _, ok := registry.GetMessageDescriptor("example.HelloRequest"); !ok {
-		t.Error("HelloRequest descriptor not found")
-	}
-	if _, ok := registry.GetMessageDescriptor("example.HelloReply"); !ok {
-		t.Error("HelloReply descriptor not found")
-	}
+import "common.proto";
+
+message FooReq { 
+	string field = 1; 
 }
 
-func TestServerReflection_ListServices(t *testing.T) {
-	registry := reflection.NewDefaultDescriptorRegistry()
-	helloProto := `syntax = "proto3";
-package example;
+service FooService { 
+	rpc DoSomething(FooReq) returns (FooReq); 
+}
+`
 
-service Greeter { rpc SayHello (HelloRequest) returns (HelloReply); }
-message HelloRequest { string name = 1; }
-message HelloReply   { string message = 1; }`
-	// Register proto
-	if err := registry.RegisterProtoFile("hello.proto", helloProto); err != nil {
-		t.Fatalf("failed to register proto: %v", err)
+	commonProto := `
+syntax = "proto3";
+
+package common;
+
+message FooReq {
+	string field = 1;
+}
+`
+
+	// Ingest in wrong order
+	registry.IngestProtoFile("service/foo.proto", serviceProto)
+	registry.IngestProtoFile("common.proto", commonProto)
+
+	// Compile and register all
+	if err := registry.CompileAndRegister(); err != nil {
+		t.Fatalf("batch compile failed: %v", err)
 	}
 
-	// Prepare a ListServices request
+	// List services via reflection
 	req := &reflectionv1.ServerReflectionRequest{
-		Host: "",
-		MessageRequest: &reflectionv1.ServerReflectionRequest_ListServices{
-			ListServices: "",
-		},
+		MessageRequest: &reflectionv1.ServerReflectionRequest_ListServices{ListServices: ""},
 	}
 	stream := &fakeStream{requests: []*reflectionv1.ServerReflectionRequest{req}}
-
-	// Call reflection
 	if err := registry.ServerReflectionInfo(stream); err != nil {
-		t.Fatalf("ServerReflectionInfo failed: %v", err)
+		t.Fatalf("ListServices RPC failed: %v", err)
 	}
-
-	// Expect one response
 	if len(stream.responses) != 1 {
 		t.Fatalf("expected 1 response, got %d", len(stream.responses))
 	}
 	resp := stream.responses[0]
 	lsr, ok := resp.MessageResponse.(*reflectionv1.ServerReflectionResponse_ListServicesResponse)
 	if !ok {
-		t.Fatalf("expected ListServicesResponse, got %T", resp.MessageResponse)
+		t.Fatalf("unexpected response type %T", resp.MessageResponse)
 	}
-	services := lsr.ListServicesResponse.Service
-	if len(services) != 1 || services[0].Name != "example.Greeter" {
-		t.Errorf("unexpected services list: %v", services)
+	found := false
+	for _, svc := range lsr.ListServicesResponse.Service {
+		if svc.Name == "example.foo.FooService" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("FooService not found in ListServices: %v", lsr.ListServicesResponse.Service)
 	}
 }
 
-func TestServerReflection_FileByFilename_NotFound(t *testing.T) {
+// Test FileByFilename success and fallback error
+func TestServerReflection_FileByFilename(t *testing.T) {
 	registry := reflection.NewDefaultDescriptorRegistry()
-	// No protos registered
-	req := &reflectionv1.ServerReflectionRequest{
-		Host: "",
-		MessageRequest: &reflectionv1.ServerReflectionRequest_FileByFilename{
-			FileByFilename: "nonexistent.proto",
-		},
+	// Register a simple proto
+	hello := `syntax = "proto3"; package example; message A {}`
+	if err := registry.RegisterProtoFile("hello.proto", hello); err != nil {
+		t.Fatalf("register failed: %v", err)
 	}
-	stream := &fakeStream{requests: []*reflectionv1.ServerReflectionRequest{req}}
-
+	// Successful FileByFilename
+	reqSuccess := &reflectionv1.ServerReflectionRequest{
+		MessageRequest: &reflectionv1.ServerReflectionRequest_FileByFilename{FileByFilename: "hello.proto"},
+	}
+	stream := &fakeStream{requests: []*reflectionv1.ServerReflectionRequest{reqSuccess}}
 	if err := registry.ServerReflectionInfo(stream); err != nil {
-		t.Fatalf("ServerReflectionInfo failed: %v", err)
+		t.Fatalf("RPC error: %v", err)
+	}
+	resp := stream.responses[0]
+	fdResp, ok := resp.MessageResponse.(*reflectionv1.ServerReflectionResponse_FileDescriptorResponse)
+	if !ok {
+		t.Fatalf("expected FileDescriptorResponse, got %T", resp.MessageResponse)
+	}
+	// Unmarshal to check valid descriptorproto bytes
+	b := fdResp.FileDescriptorResponse.GetFileDescriptorProto()[0]
+	var fdp descriptorpb.FileDescriptorProto
+	if err := proto.Unmarshal(b, &fdp); err != nil {
+		t.Errorf("failed to unmarshal FileDescriptorProto: %v", err)
+	}
+	if fdp.GetName() != "hello.proto" {
+		t.Errorf("unexpected descriptor name: %s", fdp.GetName())
 	}
 
-	if len(stream.responses) != 1 {
-		t.Fatalf("expected 1 response, got %d", len(stream.responses))
+	// Not found case
+	reqFail := &reflectionv1.ServerReflectionRequest{
+		MessageRequest: &reflectionv1.ServerReflectionRequest_FileByFilename{FileByFilename: "nope.proto"},
 	}
-	r := stream.responses[0]
+	stream2 := &fakeStream{requests: []*reflectionv1.ServerReflectionRequest{reqFail}}
+	if err := registry.ServerReflectionInfo(stream2); err != nil {
+		t.Fatalf("RPC error: %v", err)
+	}
+	r := stream2.responses[0]
 	errResp, ok := r.MessageResponse.(*reflectionv1.ServerReflectionResponse_ErrorResponse)
 	if !ok {
 		t.Fatalf("expected ErrorResponse, got %T", r.MessageResponse)
 	}
 	if codes.Code(errResp.ErrorResponse.ErrorCode) != codes.NotFound {
-		t.Errorf("expected NotFound code, got %v", errResp.ErrorResponse.ErrorCode)
+		t.Errorf("expected NotFound, got %v", errResp.ErrorResponse.ErrorCode)
+	}
+}
+
+// Test FileContainingSymbol success
+func TestServerReflection_FileContainingSymbol(t *testing.T) {
+	registry := reflection.NewDefaultDescriptorRegistry()
+	hello := `syntax = "proto3"; package ex;
+service Svc { rpc M1(M1Req) returns (M1Req); }
+message M1Req {}`
+	registry.RegisterProtoFile("test.proto", hello)
+
+	req := &reflectionv1.ServerReflectionRequest{
+		MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingSymbol{FileContainingSymbol: "ex.Svc"},
+	}
+	stream := &fakeStream{requests: []*reflectionv1.ServerReflectionRequest{req}}
+	if err := registry.ServerReflectionInfo(stream); err != nil {
+		t.Fatalf("RPC error: %v", err)
+	}
+	resp := stream.responses[0]
+	fdResp, ok := resp.MessageResponse.(*reflectionv1.ServerReflectionResponse_FileDescriptorResponse)
+	if !ok {
+		t.Fatalf("expected FileDescriptorResponse, got %T", resp.MessageResponse)
+	}
+	// Ensure returned descriptor contains the service name
+	b := fdResp.FileDescriptorResponse.GetFileDescriptorProto()[0]
+	var fdp descriptorpb.FileDescriptorProto
+	_ = proto.Unmarshal(b, &fdp)
+	found := false
+	for _, svc := range fdp.GetService() {
+		if svc.GetName() == "Svc" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("service Svc not found in descriptor: %v", fdp.GetService())
 	}
 }
