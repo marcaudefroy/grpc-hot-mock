@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"slices"
 	"sync"
 
 	"github.com/bufbuild/protocompile"
@@ -20,13 +21,20 @@ import (
 type DescriptorRegistry interface {
 	reflectionv1.ServerReflectionServer
 	GetMessageDescriptor(fullName string) (protoreflect.MessageDescriptor, bool)
-	RegisterFiles(fds linker.Files)
+
 	RegisterProtoFile(filename, content string) error
+
+	IngestProtoFile(filename, content string)
+
+	CompileAndRegister() error
+	Compile() (linker.Files, error)
+	RegisterFiles(fds linker.Files)
 }
 
 type defaultDescriptorRegistry struct {
-	protoFiles   map[string]string
-	protoFilesMu sync.RWMutex
+	protoFiles     map[string]string
+	protoFileNames []string
+	protoFilesMu   sync.RWMutex
 
 	allFileDescriptors []protoreflect.FileDescriptor
 	allFileDescMu      sync.RWMutex
@@ -46,14 +54,43 @@ func NewDefaultDescriptorRegistry() DescriptorRegistry {
 	return &d
 }
 
-func (s *defaultDescriptorRegistry) compileProto(filename, content string) (linker.Files, error) {
+// IngestProtoFile stocke le fichier dans la map sans compiler
+func (s *defaultDescriptorRegistry) IngestProtoFile(filename, content string) {
 	s.protoFilesMu.Lock()
+	defer s.protoFilesMu.Unlock()
 	if s.protoFiles == nil {
 		s.protoFiles = map[string]string{}
 	}
 	s.protoFiles[filename] = content
-	s.protoFilesMu.Unlock()
 
+	if s.protoFileNames == nil {
+		s.protoFileNames = []string{}
+	}
+	if !slices.Contains(s.protoFileNames, filename) {
+		s.protoFileNames = append(s.protoFileNames, filename)
+	}
+}
+
+func (s *defaultDescriptorRegistry) RegisterProtoFile(filename, content string) error {
+	s.IngestProtoFile(filename, content)
+	fds, err := s.Compile()
+	if err != nil {
+		return fmt.Errorf("compile error : %w", err)
+	}
+	s.RegisterFiles(fds)
+	return nil
+}
+
+func (s *defaultDescriptorRegistry) CompileAndRegister() error {
+	fds, err := s.Compile()
+	if err != nil {
+		return fmt.Errorf("compile error : %w", err)
+	}
+	s.RegisterFiles(fds)
+	return nil
+}
+
+func (s *defaultDescriptorRegistry) Compile() (linker.Files, error) {
 	base := &protocompile.SourceResolver{
 		ImportPaths: []string{"."},
 		Accessor:    protocompile.SourceAccessorFromMap(s.protoFiles),
@@ -62,23 +99,7 @@ func (s *defaultDescriptorRegistry) compileProto(filename, content string) (link
 	resolver := protocompile.WithStandardImports(base)
 
 	compiler := protocompile.Compiler{Resolver: resolver}
-	return compiler.Compile(context.Background(), filename)
-}
-
-func (s *defaultDescriptorRegistry) RegisterProtoFile(filename, content string) error {
-	fds, err := s.compileProto(filename, content)
-	if err != nil {
-		return fmt.Errorf("compile error : %w", err)
-	}
-	s.RegisterFiles(fds)
-	return nil
-}
-
-func (s *defaultDescriptorRegistry) GetMessageDescriptor(fullName string) (protoreflect.MessageDescriptor, bool) {
-	s.schemaRegistryMu.RLock()
-	defer s.schemaRegistryMu.RUnlock()
-	md, ok := s.schemaRegistry[fullName]
-	return md, ok
+	return compiler.Compile(context.Background(), s.protoFileNames...)
 }
 
 func (s *defaultDescriptorRegistry) RegisterFiles(fds linker.Files) {
@@ -88,6 +109,11 @@ func (s *defaultDescriptorRegistry) RegisterFiles(fds linker.Files) {
 		if s.allFileDescriptors == nil {
 			s.allFileDescriptors = []protoreflect.FileDescriptor{}
 		}
+		if slices.ContainsFunc(s.allFileDescriptors, func(fd2 protoreflect.FileDescriptor) bool {
+			return fd.FullName() == fd2.FullName()
+		}) {
+			continue
+		}
 		s.allFileDescriptors = append(s.allFileDescriptors, fd)
 		s.schemaRegistryMu.Lock()
 		if s.schemaRegistry == nil {
@@ -95,11 +121,20 @@ func (s *defaultDescriptorRegistry) RegisterFiles(fds linker.Files) {
 		}
 		for i := 0; i < fd.Messages().Len(); i++ {
 			md := fd.Messages().Get(i)
-			s.schemaRegistry[string(md.FullName())] = md
-			log.Printf("Registered schema: %s", md.FullName())
+			if _, ok := s.schemaRegistry[string(md.FullName())]; !ok {
+				s.schemaRegistry[string(md.FullName())] = md
+				log.Printf("Registered schema: %s", md.FullName())
+			}
 		}
 		s.schemaRegistryMu.Unlock()
 	}
+}
+
+func (s *defaultDescriptorRegistry) GetMessageDescriptor(fullName string) (protoreflect.MessageDescriptor, bool) {
+	s.schemaRegistryMu.RLock()
+	defer s.schemaRegistryMu.RUnlock()
+	md, ok := s.schemaRegistry[fullName]
+	return md, ok
 }
 
 func (s *defaultDescriptorRegistry) ServerReflectionInfo(

@@ -40,7 +40,7 @@
 - **Automated Multi‑file Import Resolution**: Bulk or recursive import loading; need to upload each `.proto` manually in correct order and path.
 - **Advanced Auth Schemes**: Beyond simple metadata forwarding, OAuth token refresh interceptors, or other custom credential flows.
 - **Streaming RPCs**: Client‑streaming, server‑streaming, and bidirectional RPCs.
-
+- **Log system**: Logging system is not implemented yet.
 
 ## Prerequisites
 
