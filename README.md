@@ -27,6 +27,7 @@
 ## Features
 
 - **Hot‑reloadable Protos**: Upload and compile `.proto` files on the fly via HTTP.
+- **Well‑Known Types Auto‑Loading**: Well-known types like `google.protobuf.Timestamp` is automatically loaded (no need to post .proto file for thoses types).
 - **Dynamic Reflection**: Custom Reflection v1 service serving in-memory descriptors.
 - **Dynamic Mocks**: Define mocks at runtime for any service/method, returning proper Protobuf messages.
 - **Optional Proxy**: Forward unmocked calls to a real backend via `--proxy` flag.
@@ -37,7 +38,6 @@
 - **Error Custom**: Mock doesn't support custom error details.
 - **Advanced Matcher** : Mock doesn't support advancded matcher (regexp, eq, etc.. on payload).
 - **Automated Multi‑file Import Resolution**: Bulk or recursive import loading; need to upload each `.proto` manually in correct order and path.
-- **Well‑Known Types Auto‑Loading**: Types like `google.protobuf.Timestamp` must be provided explicitly.
 - **Advanced Auth Schemes**: Beyond simple metadata forwarding, OAuth token refresh interceptors, or other custom credential flows.
 - **Streaming RPCs**: Client‑streaming, server‑streaming, and bidirectional RPCs.
 

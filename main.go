@@ -29,7 +29,7 @@ func main() {
 	flag.StringVar(&proxyAddr, "proxy", "", "gRPC proxy address (empty to disable)")
 	flag.Parse()
 
-	descriptorRegistry := &reflection.DefaultDescriptorRegistry{}
+	descriptorRegistry := reflection.NewDefaultDescriptorRegistry()
 	mockRegistry := &mocks.DefaultRegistry{}
 	httpServer := server.NewServer(descriptorRegistry, mockRegistry)
 	go func() {

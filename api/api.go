@@ -49,6 +49,7 @@ func (s HotServer) GenericHandler(proxy *proxy.Proxy) grpc.StreamHandler {
 			dyn := dynamicpb.NewMessage(mdesc)
 			data, _ := json.Marshal(mc.MockResponse)
 			if err := protojson.Unmarshal(data, dyn); err != nil {
+				log.Printf("Mock JSON payload: %s", data)
 				return status.Errorf(codes.Internal, "json→message: %v", err)
 			}
 

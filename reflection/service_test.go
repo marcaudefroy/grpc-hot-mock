@@ -6,7 +6,7 @@ import (
 	"io"
 	"testing"
 
-	reflectionpkg "github.com/marcaudefroy/grpc-hot-mock/reflection"
+	"github.com/marcaudefroy/grpc-hot-mock/reflection"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	reflectionv1 "google.golang.org/grpc/reflection/grpc_reflection_v1"
@@ -79,7 +79,7 @@ func (f *fakeStream) SetTrailer(metadata metadata.MD) {
 }
 
 func TestRegisterProtoFileAndGetDescriptor(t *testing.T) {
-	registry := &reflectionpkg.DefaultDescriptorRegistry{}
+	registry := reflection.NewDefaultDescriptorRegistry()
 	helloProto := `syntax = "proto3";
 package example;
 
@@ -104,7 +104,7 @@ service Greeter {
 }
 
 func TestServerReflection_ListServices(t *testing.T) {
-	registry := &reflectionpkg.DefaultDescriptorRegistry{}
+	registry := reflection.NewDefaultDescriptorRegistry()
 	helloProto := `syntax = "proto3";
 package example;
 
@@ -146,7 +146,7 @@ message HelloReply   { string message = 1; }`
 }
 
 func TestServerReflection_FileByFilename_NotFound(t *testing.T) {
-	registry := &reflectionpkg.DefaultDescriptorRegistry{}
+	registry := reflection.NewDefaultDescriptorRegistry()
 	// No protos registered
 	req := &reflectionv1.ServerReflectionRequest{
 		Host: "",

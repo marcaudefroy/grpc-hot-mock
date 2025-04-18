@@ -12,8 +12,9 @@ import (
 	"google.golang.org/grpc/codes"
 	reflectionv1 "google.golang.org/grpc/reflection/grpc_reflection_v1"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/reflect/protoregistry"
 )
 
 type DescriptorRegistry interface {
@@ -23,7 +24,7 @@ type DescriptorRegistry interface {
 	RegisterProtoFile(filename, content string) error
 }
 
-type DefaultDescriptorRegistry struct {
+type defaultDescriptorRegistry struct {
 	protoFiles   map[string]string
 	protoFilesMu sync.RWMutex
 
@@ -34,7 +35,18 @@ type DefaultDescriptorRegistry struct {
 	schemaRegistryMu sync.RWMutex
 }
 
-func (s *DefaultDescriptorRegistry) compileProto(filename, content string) (linker.Files, error) {
+func NewDefaultDescriptorRegistry() DescriptorRegistry {
+	d := defaultDescriptorRegistry{}
+	protoregistry.GlobalFiles.RangeFiles(func(fd protoreflect.FileDescriptor) bool {
+		d.allFileDescMu.Lock()
+		d.allFileDescriptors = append(d.allFileDescriptors, fd)
+		d.allFileDescMu.Unlock()
+		return true
+	})
+	return &d
+}
+
+func (s *defaultDescriptorRegistry) compileProto(filename, content string) (linker.Files, error) {
 	s.protoFilesMu.Lock()
 	if s.protoFiles == nil {
 		s.protoFiles = map[string]string{}
@@ -42,15 +54,18 @@ func (s *DefaultDescriptorRegistry) compileProto(filename, content string) (link
 	s.protoFiles[filename] = content
 	s.protoFilesMu.Unlock()
 
-	resolver := &protocompile.SourceResolver{
+	base := &protocompile.SourceResolver{
 		ImportPaths: []string{"."},
 		Accessor:    protocompile.SourceAccessorFromMap(s.protoFiles),
 	}
+
+	resolver := protocompile.WithStandardImports(base)
+
 	compiler := protocompile.Compiler{Resolver: resolver}
 	return compiler.Compile(context.Background(), filename)
 }
 
-func (s *DefaultDescriptorRegistry) RegisterProtoFile(filename, content string) error {
+func (s *defaultDescriptorRegistry) RegisterProtoFile(filename, content string) error {
 	fds, err := s.compileProto(filename, content)
 	if err != nil {
 		return fmt.Errorf("compile error : %w", err)
@@ -59,14 +74,14 @@ func (s *DefaultDescriptorRegistry) RegisterProtoFile(filename, content string) 
 	return nil
 }
 
-func (s *DefaultDescriptorRegistry) GetMessageDescriptor(fullName string) (protoreflect.MessageDescriptor, bool) {
+func (s *defaultDescriptorRegistry) GetMessageDescriptor(fullName string) (protoreflect.MessageDescriptor, bool) {
 	s.schemaRegistryMu.RLock()
 	defer s.schemaRegistryMu.RUnlock()
 	md, ok := s.schemaRegistry[fullName]
 	return md, ok
 }
 
-func (s *DefaultDescriptorRegistry) RegisterFiles(fds linker.Files) {
+func (s *defaultDescriptorRegistry) RegisterFiles(fds linker.Files) {
 	s.allFileDescMu.Lock()
 	defer s.allFileDescMu.Unlock()
 	for _, fd := range fds {
@@ -87,7 +102,7 @@ func (s *DefaultDescriptorRegistry) RegisterFiles(fds linker.Files) {
 	}
 }
 
-func (s *DefaultDescriptorRegistry) ServerReflectionInfo(
+func (s *defaultDescriptorRegistry) ServerReflectionInfo(
 	stream reflectionv1.ServerReflection_ServerReflectionInfoServer,
 ) error {
 	for {
@@ -128,7 +143,7 @@ func (s *DefaultDescriptorRegistry) ServerReflectionInfo(
 	}
 }
 
-func (s *DefaultDescriptorRegistry) buildListServicesResponse(host string, orig *reflectionv1.ServerReflectionRequest) *reflectionv1.ServerReflectionResponse {
+func (s *defaultDescriptorRegistry) buildListServicesResponse(host string, orig *reflectionv1.ServerReflectionRequest) *reflectionv1.ServerReflectionResponse {
 	seen := map[string]struct{}{}
 	svcResp := &reflectionv1.ListServiceResponse{}
 
@@ -153,7 +168,7 @@ func (s *DefaultDescriptorRegistry) buildListServicesResponse(host string, orig 
 	}
 }
 
-func (s *DefaultDescriptorRegistry) buildFileByFilenameResponse(host string, orig *reflectionv1.ServerReflectionRequest, filename string) *reflectionv1.ServerReflectionResponse {
+func (s *defaultDescriptorRegistry) buildFileByFilenameResponse(host string, orig *reflectionv1.ServerReflectionRequest, filename string) *reflectionv1.ServerReflectionResponse {
 	fdpBytes, found := s.lookupFileDescriptorProtoBytes(func(fd protoreflect.FileDescriptor) bool {
 		return fd.Path() == filename
 	})
@@ -172,7 +187,7 @@ func (s *DefaultDescriptorRegistry) buildFileByFilenameResponse(host string, ori
 	}
 }
 
-func (s *DefaultDescriptorRegistry) buildFileContainingSymbolResponse(host string, orig *reflectionv1.ServerReflectionRequest, symbol string) *reflectionv1.ServerReflectionResponse {
+func (s *defaultDescriptorRegistry) buildFileContainingSymbolResponse(host string, orig *reflectionv1.ServerReflectionRequest, symbol string) *reflectionv1.ServerReflectionResponse {
 	fdpBytes, found := s.lookupFileDescriptorProtoBytes(func(fd protoreflect.FileDescriptor) bool {
 		for i := 0; i < fd.Services().Len(); i++ {
 			if string(fd.Services().Get(i).FullName()) == symbol {
@@ -201,12 +216,12 @@ func (s *DefaultDescriptorRegistry) buildFileContainingSymbolResponse(host strin
 	}
 }
 
-func (s *DefaultDescriptorRegistry) lookupFileDescriptorProtoBytes(match func(protoreflect.FileDescriptor) bool) ([]byte, bool) {
+func (s *defaultDescriptorRegistry) lookupFileDescriptorProtoBytes(match func(protoreflect.FileDescriptor) bool) ([]byte, bool) {
 	s.allFileDescMu.RLock()
 	defer s.allFileDescMu.RUnlock()
 	for _, fd := range s.allFileDescriptors {
 		if match(fd) {
-			fdp := protodescToProto(fd)
+			fdp := protodesc.ToFileDescriptorProto(fd)
 			b, _ := proto.Marshal(fdp)
 			return b, true
 		}
@@ -214,7 +229,7 @@ func (s *DefaultDescriptorRegistry) lookupFileDescriptorProtoBytes(match func(pr
 	return nil, false
 }
 
-func (s *DefaultDescriptorRegistry) errorResponse(host string, orig *reflectionv1.ServerReflectionRequest, code codes.Code, msg string) *reflectionv1.ServerReflectionResponse {
+func (s *defaultDescriptorRegistry) errorResponse(host string, orig *reflectionv1.ServerReflectionRequest, code codes.Code, msg string) *reflectionv1.ServerReflectionResponse {
 	return &reflectionv1.ServerReflectionResponse{
 		ValidHost:       host,
 		OriginalRequest: orig,
@@ -224,21 +239,5 @@ func (s *DefaultDescriptorRegistry) errorResponse(host string, orig *reflectionv
 				ErrorMessage: msg,
 			},
 		},
-	}
-}
-
-// protodescToProto transforms a protoreflect.FileDescriptor into its
-// corresponding descriptorpb.FileDescriptorProto for use in gRPC reflection.
-func protodescToProto(fd protoreflect.FileDescriptor) *descriptorpb.FileDescriptorProto {
-	type hasProto interface {
-		FileDescriptorProto() *descriptorpb.FileDescriptorProto
-	}
-	if accessor, ok := fd.(hasProto); ok {
-		return accessor.FileDescriptorProto()
-	}
-	// fallback minimal
-	return &descriptorpb.FileDescriptorProto{
-		Name:    proto.String(fd.Path()),
-		Package: proto.String(string(fd.Package())),
 	}
 }
