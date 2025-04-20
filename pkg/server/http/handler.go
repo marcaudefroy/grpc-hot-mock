@@ -1,20 +1,21 @@
-package server
+package http
 
 import (
 	"encoding/json"
 	"fmt"
 	"net/http"
 
-	"github.com/marcaudefroy/grpc-hot-mock/mocks"
-	"github.com/marcaudefroy/grpc-hot-mock/reflection"
+	"github.com/marcaudefroy/grpc-hot-mock/pkg/mocks"
 )
 
+// uploadProtoRequest is the payload for /upload_proto
 type uploadProtoRequest struct {
 	Filename string `json:"filename"`
 	Content  string `json:"content"`
 }
 
-func (s HTTPServer) handleUploadProto(w http.ResponseWriter, r *http.Request) {
+// handleUploadProto ingests, compiles, and registers a single .proto file.
+func (s *Server) handleUploadProto(w http.ResponseWriter, r *http.Request) {
 	var req uploadProtoRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -24,8 +25,7 @@ func (s HTTPServer) handleUploadProto(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "filename and content required", http.StatusBadRequest)
 		return
 	}
-	err := s.descriptorRegistry.RegisterProtoFile(req.Filename, req.Content)
-	if err != nil {
+	if err := s.descriptorRegistry.RegisterProtoFile(req.Filename, req.Content); err != nil {
 		http.Error(w, "compile error: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -33,7 +33,7 @@ func (s HTTPServer) handleUploadProto(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "proto %s uploaded, descriptors registered", req.Filename)
 }
 
-// BulkUploadRequest est le JSON que l’on attend sur /upload_protos
+// BulkUploadRequest is the payload for /upload_protos and /injest
 type BulkUploadRequest struct {
 	Files []struct {
 		Filename string `json:"filename"`
@@ -41,8 +41,8 @@ type BulkUploadRequest struct {
 	} `json:"files"`
 }
 
-// handleBulkUploadProtos permet d’uploader plusieurs .proto en une seule requête
-func (s HTTPServer) handleBulkUploadProtos(w http.ResponseWriter, r *http.Request) {
+// handleBulkUploadProtos ingests and compiles multiple .proto files in one call.
+func (s *Server) handleBulkUploadProtos(w http.ResponseWriter, r *http.Request) {
 	var req BulkUploadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -52,7 +52,7 @@ func (s HTTPServer) handleBulkUploadProtos(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "no proto files provided", http.StatusBadRequest)
 		return
 	}
-
+	// Phase 1: ingest all
 	for _, f := range req.Files {
 		if f.Filename == "" || f.Content == "" {
 			http.Error(w, "filename and content required for all files", http.StatusBadRequest)
@@ -60,17 +60,17 @@ func (s HTTPServer) handleBulkUploadProtos(w http.ResponseWriter, r *http.Reques
 		}
 		s.descriptorRegistry.IngestProtoFile(f.Filename, f.Content)
 	}
-
+	// Phase 2: compile and register all
 	if err := s.descriptorRegistry.CompileAndRegister(); err != nil {
 		http.Error(w, fmt.Sprintf("failed to compile files: %v", err), http.StatusBadRequest)
 		return
 	}
-
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprintf(w, "%d proto files ingested and registered", len(req.Files))
 }
 
-func (s HTTPServer) injestProto(w http.ResponseWriter, r *http.Request) {
+// handleIngestProto ingests multiple .proto sources without compilation.
+func (s *Server) handleIngestProto(w http.ResponseWriter, r *http.Request) {
 	var req BulkUploadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -80,7 +80,6 @@ func (s HTTPServer) injestProto(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no proto files provided", http.StatusBadRequest)
 		return
 	}
-
 	for _, f := range req.Files {
 		if f.Filename == "" || f.Content == "" {
 			http.Error(w, "filename and content required for all files", http.StatusBadRequest)
@@ -88,21 +87,22 @@ func (s HTTPServer) injestProto(w http.ResponseWriter, r *http.Request) {
 		}
 		s.descriptorRegistry.IngestProtoFile(f.Filename, f.Content)
 	}
-
 	w.WriteHeader(http.StatusAccepted)
 	fmt.Fprintf(w, "%d proto files ingested", len(req.Files))
 }
 
-func (s HTTPServer) compile(w http.ResponseWriter, r *http.Request) {
+// handleCompile compiles and registers all previously ingested .proto sources.
+func (s *Server) handleCompile(w http.ResponseWriter, r *http.Request) {
 	if err := s.descriptorRegistry.CompileAndRegister(); err != nil {
 		http.Error(w, fmt.Sprintf("failed to compile files: %v", err), http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "proto files compiles")
+	fmt.Fprint(w, "proto files compiled and registered")
 }
 
-func (s HTTPServer) handleAddMock(w http.ResponseWriter, r *http.Request) {
+// handleAddMock registers a new mock configuration.
+func (s *Server) handleAddMock(w http.ResponseWriter, r *http.Request) {
 	var mc mocks.MockConfig
 	if err := json.NewDecoder(r.Body).Decode(&mc); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -115,24 +115,4 @@ func (s HTTPServer) handleAddMock(w http.ResponseWriter, r *http.Request) {
 	s.mockRegistry.RegisterMock(mc)
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprintf(w, "mock registered for %s/%s", mc.Service, mc.Method)
-}
-
-type HTTPServer struct {
-	mockRegistry       mocks.Registry
-	descriptorRegistry reflection.DescriptorRegistry
-}
-
-func NewServer(descriptorRegistry reflection.DescriptorRegistry, mockRegistry mocks.Registry) *http.ServeMux {
-	mux := http.NewServeMux()
-	s := &HTTPServer{
-		mockRegistry:       mockRegistry,
-		descriptorRegistry: descriptorRegistry,
-	}
-	mux.HandleFunc("/upload_proto", s.handleUploadProto)
-	mux.HandleFunc("/upload_protos", s.handleBulkUploadProtos)
-	mux.HandleFunc("/injest", s.injestProto)
-	mux.HandleFunc("/compile", s.compile)
-	mux.HandleFunc("/mocks", s.handleAddMock)
-
-	return mux
 }

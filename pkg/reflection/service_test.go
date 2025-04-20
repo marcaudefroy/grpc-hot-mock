@@ -6,7 +6,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/marcaudefroy/grpc-hot-mock/reflection"
+	"github.com/marcaudefroy/grpc-hot-mock/pkg/reflection"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	reflectionv1 "google.golang.org/grpc/reflection/grpc_reflection_v1"

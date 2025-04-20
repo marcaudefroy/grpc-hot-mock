@@ -1,4 +1,4 @@
-package server_test
+package http_test
 
 import (
 	"bytes"
@@ -7,16 +7,16 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/marcaudefroy/grpc-hot-mock/mocks"
-	"github.com/marcaudefroy/grpc-hot-mock/reflection"
-	"github.com/marcaudefroy/grpc-hot-mock/server"
+	"github.com/marcaudefroy/grpc-hot-mock/pkg/mocks"
+	"github.com/marcaudefroy/grpc-hot-mock/pkg/reflection"
+	httpServer "github.com/marcaudefroy/grpc-hot-mock/pkg/server/http"
 )
 
 // Test the /upload_proto endpoint with valid and invalid payloads
 func TestHandleUploadProto(t *testing.T) {
 	dr := reflection.NewDefaultDescriptorRegistry()
 	mr := &mocks.DefaultRegistry{}
-	mux := server.NewServer(dr, mr)
+	mux := httpServer.NewServer(dr, mr)
 
 	// Successful upload
 	payload := map[string]string{"filename": "test.proto", "content": "syntax = \"proto3\"; package p; message M{}"}
@@ -55,7 +55,7 @@ func TestHandleUploadProto(t *testing.T) {
 func TestIngestAndCompileEndpoints(t *testing.T) {
 	dr := reflection.NewDefaultDescriptorRegistry()
 	mr := &mocks.DefaultRegistry{}
-	mux := server.NewServer(dr, mr)
+	mux := httpServer.NewServer(dr, mr)
 
 	// Ingest multiple protos
 	bulk := map[string]interface{}{"files": []map[string]string{
@@ -91,7 +91,7 @@ func TestIngestAndCompileEndpoints(t *testing.T) {
 func TestHandleBulkUploadProtos(t *testing.T) {
 	dr := reflection.NewDefaultDescriptorRegistry()
 	mr := &mocks.DefaultRegistry{}
-	mux := server.NewServer(dr, mr)
+	mux := httpServer.NewServer(dr, mr)
 
 	bulk := map[string]interface{}{"files": []map[string]string{
 		{"filename": "c.proto", "content": "syntax = \"proto3\"; package y; message C{}"},
@@ -118,7 +118,7 @@ func TestHandleBulkUploadProtos(t *testing.T) {
 func TestHandleAddMock(t *testing.T) {
 	dr := reflection.NewDefaultDescriptorRegistry()
 	mr := &mocks.DefaultRegistry{}
-	mux := server.NewServer(dr, mr)
+	mux := httpServer.NewServer(dr, mr)
 
 	// Register mock
 	mock := map[string]interface{}{

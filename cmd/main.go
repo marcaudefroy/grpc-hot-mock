@@ -7,20 +7,16 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/marcaudefroy/grpc-hot-mock/api"
-	"github.com/marcaudefroy/grpc-hot-mock/mocks"
-	"github.com/marcaudefroy/grpc-hot-mock/reflection"
-	"github.com/marcaudefroy/grpc-hot-mock/server"
+	"github.com/marcaudefroy/grpc-hot-mock/pkg/mocks"
+	"github.com/marcaudefroy/grpc-hot-mock/pkg/reflection"
+	"github.com/marcaudefroy/grpc-hot-mock/pkg/server/grpc"
+	hotServer "github.com/marcaudefroy/grpc-hot-mock/pkg/server/http"
 )
 
-// var reflectionService *reflection.ReflectionService
-
-// Registres en mémoire
 var (
 	protoFiles   = map[string]string{}
 	protoFilesMu sync.RWMutex
-
-	proxyAddr string
+	proxyAddr    string
 )
 
 func main() {
@@ -31,13 +27,13 @@ func main() {
 
 	descriptorRegistry := reflection.NewDefaultDescriptorRegistry()
 	mockRegistry := &mocks.DefaultRegistry{}
-	httpServer := server.NewServer(descriptorRegistry, mockRegistry)
+	httpServer := hotServer.NewServer(descriptorRegistry, mockRegistry)
 	go func() {
 		log.Printf("HTTP config server on %s", *httpPort)
 		log.Fatal(http.ListenAndServe(*httpPort, httpServer))
 	}()
 
-	server := api.NewServer(proxyAddr, descriptorRegistry, mockRegistry)
+	server := grpc.NewServer(proxyAddr, descriptorRegistry, mockRegistry)
 	lis, err := net.Listen("tcp", *grpcPort)
 	if err != nil {
 		log.Fatalf("listen %s: %v", *grpcPort, err)
