@@ -12,7 +12,7 @@ import (
 	httpServer "github.com/marcaudefroy/grpc-hot-mock/pkg/server/http"
 )
 
-// Test the /upload_proto endpoint with valid and invalid payloads
+// Test the /upload-proto endpoint with valid and invalid payloads
 func TestHandleUploadProto(t *testing.T) {
 	dr := reflection.NewDefaultDescriptorRegistry()
 	mr := &mocks.DefaultRegistry{}
@@ -21,7 +21,7 @@ func TestHandleUploadProto(t *testing.T) {
 	// Successful upload
 	payload := map[string]string{"filename": "test.proto", "content": "syntax = \"proto3\"; package p; message M{}"}
 	body, _ := json.Marshal(payload)
-	req := httptest.NewRequest(http.MethodPost, "/upload_proto", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/upload-proto", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -33,7 +33,7 @@ func TestHandleUploadProto(t *testing.T) {
 	}
 
 	// Invalid JSON
-	req = httptest.NewRequest(http.MethodPost, "/upload_proto", bytes.NewReader([]byte(`{invalid`)))
+	req = httptest.NewRequest(http.MethodPost, "/upload-proto", bytes.NewReader([]byte(`{invalid`)))
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -43,7 +43,7 @@ func TestHandleUploadProto(t *testing.T) {
 	// Missing fields
 	payload = map[string]string{"filename": "", "content": ""}
 	body, _ = json.Marshal(payload)
-	req = httptest.NewRequest(http.MethodPost, "/upload_proto", bytes.NewReader(body))
+	req = httptest.NewRequest(http.MethodPost, "/upload-proto", bytes.NewReader(body))
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -87,7 +87,7 @@ func TestIngestAndCompileEndpoints(t *testing.T) {
 	}
 }
 
-// Test handleBulkUploadProtos via /upload_protos
+// Test handleBulkUploadProtos via /upload-protos
 func TestHandleBulkUploadProtos(t *testing.T) {
 	dr := reflection.NewDefaultDescriptorRegistry()
 	mr := &mocks.DefaultRegistry{}
@@ -98,7 +98,7 @@ func TestHandleBulkUploadProtos(t *testing.T) {
 		{"filename": "d.proto", "content": "syntax = \"proto3\"; package y; message D{}"},
 	}}
 	body, _ := json.Marshal(bulk)
-	req := httptest.NewRequest(http.MethodPost, "/upload_protos", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/upload-protos", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
