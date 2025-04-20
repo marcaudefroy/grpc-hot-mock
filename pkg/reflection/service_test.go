@@ -201,7 +201,9 @@ func TestServerReflection_FileContainingSymbol(t *testing.T) {
 	hello := `syntax = "proto3"; package ex;
 service Svc { rpc M1(M1Req) returns (M1Req); }
 message M1Req {}`
-	registry.RegisterProtoFile("test.proto", hello)
+	if err := registry.RegisterProtoFile("test.proto", hello); err != nil {
+		t.Fatalf("Register proto file error: %v", err)
+	}
 
 	req := &reflectionv1.ServerReflectionRequest{
 		MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingSymbol{FileContainingSymbol: "ex.Svc"},

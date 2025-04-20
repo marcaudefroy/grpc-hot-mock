@@ -1,0 +1,28 @@
+# .golangci.yml
+run:
+  timeout: 5m
+  tests: true
+
+issues:
+  exclude-use-default: false
+
+linters:
+  enable:
+    - gofmt
+    - govet
+    - staticcheck
+    - ineffassign
+    - errcheck
+    - gosimple
+    - typecheck
+    - unused
+    - revive
+linters-settings:
+  gofmt:
+    simplify: true
+  revive:
+    ignore-generated-header: true
+    severity: warning
+    rules:
+      - name: indent-error-flow
+      - name: var-naming

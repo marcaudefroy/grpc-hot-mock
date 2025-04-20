@@ -79,7 +79,7 @@ message HelloReply   { string message = 1; }`
 		Service:      "example.Greeter",
 		Method:       "SayHello",
 		ResponseType: "example.HelloReply",
-		MockResponse: map[string]interface{}{"message": "hi"},
+		MockResponse: map[string]any{"message": "hi"},
 		GrpcStatus:   0,
 		Headers:      map[string]string{"h": "v"},
 		DelayMs:      0,
@@ -163,7 +163,7 @@ service EventService { rpc GetEvent(EventRequest) returns (Event); }`
 		Service:      "example.EventService",
 		Method:       "GetEvent",
 		ResponseType: "example.Event",
-		MockResponse: map[string]interface{}{
+		MockResponse: map[string]any{
 			"id":         "evt-123",
 			"occurredAt": mockTime,
 		},

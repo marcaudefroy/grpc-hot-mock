@@ -3,12 +3,13 @@ package http
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/mocks"
 )
 
-// uploadProtoRequest is the payload for /upload_proto
+// uploadProtoRequest is the payload for /upload-proto
 type uploadProtoRequest struct {
 	Filename string `json:"filename"`
 	Content  string `json:"content"`
@@ -30,10 +31,12 @@ func (s *Server) handleUploadProto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintf(w, "proto %s uploaded, descriptors registered", req.Filename)
+	if _, err := fmt.Fprintf(w, "proto %s uploaded, descriptors registered", req.Filename); err != nil {
+		log.Printf("warning: write response failed: %v", err)
+	}
 }
 
-// BulkUploadRequest is the payload for /upload_protos and /injest
+// BulkUploadRequest is the payload for /upload-protos and /injest
 type BulkUploadRequest struct {
 	Files []struct {
 		Filename string `json:"filename"`
@@ -66,7 +69,9 @@ func (s *Server) handleBulkUploadProtos(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintf(w, "%d proto files ingested and registered", len(req.Files))
+	if _, err := fmt.Fprintf(w, "%d proto files ingested and registered", len(req.Files)); err != nil {
+		log.Printf("warning: write response failed: %v", err)
+	}
 }
 
 // handleIngestProto ingests multiple .proto sources without compilation.
@@ -88,7 +93,9 @@ func (s *Server) handleIngestProto(w http.ResponseWriter, r *http.Request) {
 		s.descriptorRegistry.IngestProtoFile(f.Filename, f.Content)
 	}
 	w.WriteHeader(http.StatusAccepted)
-	fmt.Fprintf(w, "%d proto files ingested", len(req.Files))
+	if _, err := fmt.Fprintf(w, "%d proto files ingested", len(req.Files)); err != nil {
+		log.Printf("warning: write response failed: %v", err)
+	}
 }
 
 // handleCompile compiles and registers all previously ingested .proto sources.
@@ -98,7 +105,9 @@ func (s *Server) handleCompile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, "proto files compiled and registered")
+	if _, err := fmt.Fprint(w, "proto files compiled and registered"); err != nil {
+		log.Printf("warning: write response failed: %v", err)
+	}
 }
 
 // handleAddMock registers a new mock configuration.
@@ -114,5 +123,7 @@ func (s *Server) handleAddMock(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mockRegistry.RegisterMock(mc)
 	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintf(w, "mock registered for %s/%s", mc.Service, mc.Method)
+	if _, err := fmt.Fprintf(w, "mock registered for %s/%s", mc.Service, mc.Method); err != nil {
+		log.Printf("warning: write response failed: %v", err)
+	}
 }

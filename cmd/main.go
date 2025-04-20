@@ -5,7 +5,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"sync"
 
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/mocks"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/reflection"
@@ -13,11 +12,7 @@ import (
 	hotServer "github.com/marcaudefroy/grpc-hot-mock/pkg/server/http"
 )
 
-var (
-	protoFiles   = map[string]string{}
-	protoFilesMu sync.RWMutex
-	proxyAddr    string
-)
+var proxyAddr string
 
 func main() {
 	grpcPort := flag.String("grpc_port", ":50051", "gRPC listen address")

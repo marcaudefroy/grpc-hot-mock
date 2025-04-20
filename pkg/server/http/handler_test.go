@@ -58,7 +58,7 @@ func TestIngestAndCompileEndpoints(t *testing.T) {
 	mux := httpServer.NewServer(dr, mr)
 
 	// Ingest multiple protos
-	bulk := map[string]interface{}{"files": []map[string]string{
+	bulk := map[string]any{"files": []map[string]string{
 		{"filename": "a.proto", "content": "syntax = \"proto3\"; package x; message A{}"},
 		{"filename": "b.proto", "content": "syntax = \"proto3\"; package x; message B{}"},
 	}}
@@ -93,7 +93,7 @@ func TestHandleBulkUploadProtos(t *testing.T) {
 	mr := &mocks.DefaultRegistry{}
 	mux := httpServer.NewServer(dr, mr)
 
-	bulk := map[string]interface{}{"files": []map[string]string{
+	bulk := map[string]any{"files": []map[string]string{
 		{"filename": "c.proto", "content": "syntax = \"proto3\"; package y; message C{}"},
 		{"filename": "d.proto", "content": "syntax = \"proto3\"; package y; message D{}"},
 	}}
@@ -121,7 +121,7 @@ func TestHandleAddMock(t *testing.T) {
 	mux := httpServer.NewServer(dr, mr)
 
 	// Register mock
-	mock := map[string]interface{}{
+	mock := map[string]any{
 		"service":      "svc",
 		"method":       "M",
 		"responseType": "T",

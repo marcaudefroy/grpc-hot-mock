@@ -17,8 +17,8 @@ type Server struct {
 func NewServer(dr reflection.DescriptorRegistry, mr mocks.Registry) *http.ServeMux {
 	mux := http.NewServeMux()
 	s := &Server{mockRegistry: mr, descriptorRegistry: dr}
-	mux.HandleFunc("/upload_proto", s.handleUploadProto)
-	mux.HandleFunc("/upload_protos", s.handleBulkUploadProtos)
+	mux.HandleFunc("/upload-proto", s.handleUploadProto)
+	mux.HandleFunc("/upload-protos", s.handleBulkUploadProtos)
 	mux.HandleFunc("/injest", s.handleIngestProto)
 	mux.HandleFunc("/compile", s.handleCompile)
 	mux.HandleFunc("/mocks", s.handleAddMock)
