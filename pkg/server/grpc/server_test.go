@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/mocks"
-	"github.com/marcaudefroy/grpc-hot-mock/pkg/proxy"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/reflection"
 	grpcServer "github.com/marcaudefroy/grpc-hot-mock/pkg/server/grpc"
 	"google.golang.org/grpc"
@@ -87,7 +86,7 @@ message HelloReply   { string message = 1; }`
 	mr := &mocks.DefaultRegistry{}
 	mr.RegisterMock(mc)
 
-	handler := grpcServer.Handler(mr, dr, proxy.New(""))
+	handler := grpcServer.Handler(mr, dr, nil)
 	stream := newFakeServerStream("/example.Greeter/SayHello")
 	if err := handler(nil, stream); err != nil {
 		t.Fatalf("handler error: %v", err)
@@ -134,8 +133,7 @@ func TestHandler_GrpcStatusError(t *testing.T) {
 	}
 	mr := &mocks.DefaultRegistry{}
 	mr.RegisterMock(mc)
-
-	handler := grpcServer.Handler(mr, dr, proxy.New(""))
+	handler := grpcServer.Handler(mr, dr, nil)
 	stream := newFakeServerStream("/example.Greeter/SayHello")
 	err := handler(nil, stream)
 	st, _ := status.FromError(err)
@@ -171,7 +169,7 @@ service EventService { rpc GetEvent(EventRequest) returns (Event); }`
 	mr := &mocks.DefaultRegistry{}
 	mr.RegisterMock(mc)
 
-	handler := grpcServer.Handler(mr, dr, proxy.New(""))
+	handler := grpcServer.Handler(mr, dr, nil)
 	stream := newFakeServerStream("/example.EventService/GetEvent")
 	if err := handler(nil, stream); err != nil {
 		t.Fatalf("handler error: %v", err)

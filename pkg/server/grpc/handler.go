@@ -26,10 +26,11 @@ func Handler(
 ) grpc.StreamHandler {
 	return func(srv any, stream grpc.ServerStream) error {
 		fullMethod, _ := grpc.MethodFromServerStream(stream)
-		log.Printf("gRPC call: %s", fullMethod)
+		log.Printf("[UnknownServiceHandler] method call gRPC received: %s", fullMethod)
 
 		mc, hasMock := mockRegistry.GetMock(fullMethod)
 		if hasMock {
+			log.Printf("[UnknownServiceHandler] Mock found")
 			if mc.DelayMs > 0 {
 				time.Sleep(time.Duration(mc.DelayMs) * time.Millisecond)
 			}
@@ -51,7 +52,7 @@ func Handler(
 			dyn := dynamicpb.NewMessage(desc)
 			raw, _ := json.Marshal(mc.MockResponse)
 			if err := protojson.Unmarshal(raw, dyn); err != nil {
-				log.Printf("Mock JSON payload: %s", raw)
+				log.Printf("[UnknownServiceHandler] Mock JSON payload: %s", raw)
 				return status.Errorf(codes.Internal, "json→message: %v", err)
 			}
 
@@ -61,6 +62,7 @@ func Handler(
 		if p == nil {
 			return status.Errorf(codes.Unimplemented, "no mock and no proxy")
 		}
+		log.Printf("[UnknownServiceHandler] No mock found, handle request by the proxy")
 		return p.Handle(srv, stream)
 	}
 }

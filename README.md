@@ -31,7 +31,7 @@
 - **Automated multi‑file import resolution**: upload multiple `.proto` files in a single request and compile them together, automatically resolving all inter‑file dependencies.
 - **Dynamic Reflection**: Custom Reflection v1 service serving in-memory descriptors.
 - **Dynamic Mocks**: Define mocks at runtime for any service/method, returning proper Protobuf messages.
-- **Optional Proxy**: Forward unmocked calls to a real backend via `--proxy` flag.
+- **Optional Proxy**: Forward unmocked calls to a real backend via `--proxy` flag or "PROXY_TARGET" env.
 - **Unary RPC Support**: Generic handler for unary calls.
 
 ### Currently Not Supported (Coming soon)
@@ -63,7 +63,7 @@ go mod tidy
 ### Start the Server
 
 ```bash
-go run main.go \
+go run cmd/main.go \
   -grpc_port=":50051" \
   -http_port=":8080" \
   [--proxy="localhost:50052"]
@@ -76,7 +76,7 @@ go run main.go \
 ### Upload a .proto
 
 ```bash
-curl -X POST http://localhost:8080/upload_proto \
+curl -X POST http://localhost:8080/upload-proto \
      -H "Content-Type: application/json" \
      -d '{
            "filename":"hello.proto",
