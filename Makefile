@@ -6,6 +6,9 @@ HTTP_PORT ?= :8080
 
 GOLANGCI_LINT_VERSION := v1.56.0
 
+# Default SemVer
+VERSION ?= dev
+
 GOBIN ?= $(shell go env GOPATH)/bin
 
 .PHONY: run ensure-golangci-lint lint build test ci

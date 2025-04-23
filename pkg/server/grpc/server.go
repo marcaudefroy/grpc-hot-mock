@@ -1,10 +1,13 @@
 package grpc
 
 import (
+	"log"
+
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/mocks"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/proxy"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/reflection"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	reflectionv1 "google.golang.org/grpc/reflection/grpc_reflection_v1"
 )
 
@@ -18,11 +21,15 @@ func NewServer(
 ) *grpc.Server {
 	var p *proxy.Proxy
 	if proxyAddr != "" {
-		p = proxy.New(proxyAddr)
+		var err error
+		p, err = proxy.New(proxyAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Printf("Unable to initiate proxy : %v", err)
+		}
 	}
-
 	srv := grpc.NewServer(
 		grpc.UnknownServiceHandler(Handler(mockRegistry, descriptorRegistry, p)),
+		grpc.ForceServerCodecV2(proxy.NewDefaultMultiplexCodec()),
 	)
 	reflectionv1.RegisterServerReflectionServer(srv, descriptorRegistry)
 	return srv
