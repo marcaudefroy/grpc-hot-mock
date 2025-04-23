@@ -3,9 +3,9 @@ package proxy
 import (
 	"fmt"
 	"io"
-	"log"
 
 	_ "google.golang.org/grpc/encoding/proto"
+	"google.golang.org/grpc/grpclog"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -38,11 +38,12 @@ func (p *Proxy) Handle(_ interface{}, serverStream grpc.ServerStream) error {
 	desc := &grpc.StreamDesc{ClientStreams: true, ServerStreams: true}
 	targetStream, err := p.conn.NewStream(serverStream.Context(), desc, fullMethod, grpc.WaitForReady(true))
 	if err != nil {
-		log.Printf("Unable to create new stream: %v", err)
 		return fmt.Errorf("proxy new stream: %w", err)
 	}
 
-	log.Printf("[proxy] Send request to target")
+	if grpclog.V(2) {
+		grpclog.Infof("[proxy] Send request to target")
+	}
 
 	errCh := make(chan error, 2)
 	// Client -> Target
@@ -51,21 +52,31 @@ func (p *Proxy) Handle(_ interface{}, serverStream grpc.ServerStream) error {
 			var msg []byte
 			if err := serverStream.RecvMsg(&msg); err != nil {
 				if err != io.EOF {
-					log.Printf("[proxy] Error while recv message from client %v", err)
+					if grpclog.V(2) {
+						grpclog.Infof("[proxy] Error while recv message from client %v", err)
+					}
 				} else {
-					log.Printf("[proxy] EOF from client")
+					if grpclog.V(2) {
+						grpclog.Infof("[proxy] EOF from client")
+					}
 				}
 				errCh <- err
 				return
 			}
-			log.Printf("[proxy] Message received from client, follow it to target")
+			if grpclog.V(2) {
+				grpclog.Infof("[proxy] Message received from client, follow it to target")
+			}
 			err := targetStream.SendMsg(msg)
 			if err != nil {
-				log.Printf("[proxy] Error while sending message to target: %v", err)
+				if grpclog.V(2) {
+					grpclog.Infof("[proxy] Error while sending message to target: %v", err)
+				}
 				errCh <- err
 				return
 			}
-			log.Printf("[proxy] Message followed to target sucessfully")
+			if grpclog.V(2) {
+				grpclog.Infof("[proxy] Message followed to target sucessfully")
+			}
 
 		}
 	}()
@@ -76,21 +87,29 @@ func (p *Proxy) Handle(_ interface{}, serverStream grpc.ServerStream) error {
 			var msg []byte
 			if err := targetStream.RecvMsg(&msg); err != nil {
 				if err != io.EOF {
-					log.Printf("[proxy] Error while recv message from target %v", err)
+					if grpclog.V(2) {
+						grpclog.Infof("[proxy] Error while recv message from target %v", err)
+					}
 				} else {
-					log.Printf("[proxy] EOF from target")
+					if grpclog.V(2) {
+						grpclog.Infof("[proxy] EOF from target")
+					}
 				}
 				errCh <- err
 				return
 			}
-			log.Printf("[proxy] Message received from target, follow it to client")
+			grpclog.Infof("[proxy] Message received from target, follow it to client")
 			err := serverStream.SendMsg(msg)
 			if err != nil {
-				log.Printf("[proxy] Error while sending message to client: %v", err)
+				if grpclog.V(2) {
+					grpclog.Infof("[proxy] Error while sending message to client: %v", err)
+				}
 				errCh <- err
 				return
 			}
-			log.Printf("[proxy] Message followed to client sucessfully")
+			if grpclog.V(2) {
+				grpclog.Infof("[proxy] Message followed to client sucessfully")
+			}
 		}
 	}()
 

@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"encoding/json"
-	"log"
 	"time"
 
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/mocks"
@@ -10,6 +9,7 @@ import (
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/reflection"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -26,11 +26,15 @@ func Handler(
 ) grpc.StreamHandler {
 	return func(srv any, stream grpc.ServerStream) error {
 		fullMethod, _ := grpc.MethodFromServerStream(stream)
-		log.Printf("[UnknownServiceHandler] method call gRPC received: %s", fullMethod)
+		if grpclog.V(2) {
+			grpclog.Infof("[UnknownServiceHandler] method call gRPC received: %s", fullMethod)
+		}
 
 		mc, hasMock := mockRegistry.GetMock(fullMethod)
 		if hasMock {
-			log.Printf("[UnknownServiceHandler] Mock found")
+			if grpclog.V(2) {
+				grpclog.Infof("[UnknownServiceHandler] Mock found")
+			}
 			if mc.DelayMs > 0 {
 				time.Sleep(time.Duration(mc.DelayMs) * time.Millisecond)
 			}
@@ -52,7 +56,9 @@ func Handler(
 			dyn := dynamicpb.NewMessage(desc)
 			raw, _ := json.Marshal(mc.MockResponse)
 			if err := protojson.Unmarshal(raw, dyn); err != nil {
-				log.Printf("[UnknownServiceHandler] Mock JSON payload: %s", raw)
+				if grpclog.V(2) {
+					grpclog.Infof("[UnknownServiceHandler] json→message: %v", err)
+				}
 				return status.Errorf(codes.Internal, "json→message: %v", err)
 			}
 
@@ -62,7 +68,9 @@ func Handler(
 		if p == nil {
 			return status.Errorf(codes.Unimplemented, "no mock and no proxy")
 		}
-		log.Printf("[UnknownServiceHandler] No mock found, handle request by the proxy")
+		if grpclog.V(2) {
+			grpclog.Infof("[UnknownServiceHandler] No mock found, handle request by the proxy")
+		}
 		return p.Handle(srv, stream)
 	}
 }
