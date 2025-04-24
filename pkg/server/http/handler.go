@@ -46,6 +46,10 @@ type BulkUploadRequest struct {
 
 // handleBulkUploadProtos ingests and compiles multiple .proto files in one call.
 func (s *Server) handleBulkUploadProtos(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	var req BulkUploadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -76,6 +80,10 @@ func (s *Server) handleBulkUploadProtos(w http.ResponseWriter, r *http.Request) 
 
 // handleIngestProto ingests multiple .proto sources without compilation.
 func (s *Server) handleIngestProto(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	var req BulkUploadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -100,6 +108,10 @@ func (s *Server) handleIngestProto(w http.ResponseWriter, r *http.Request) {
 
 // handleCompile compiles and registers all previously ingested .proto sources.
 func (s *Server) handleCompile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	if err := s.descriptorRegistry.CompileAndRegister(); err != nil {
 		http.Error(w, fmt.Sprintf("failed to compile files: %v", err), http.StatusBadRequest)
 		return
@@ -112,12 +124,17 @@ func (s *Server) handleCompile(w http.ResponseWriter, r *http.Request) {
 
 // handleAddMock registers a new mock configuration.
 func (s *Server) handleAddMock(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	var mc mocks.MockConfig
 	if err := json.NewDecoder(r.Body).Decode(&mc); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if mc.Service == "" || mc.Method == "" || mc.ResponseType == "" {
+	if mc.Service == "" || mc.Method == "" {
 		http.Error(w, "service, method and responseType required", http.StatusBadRequest)
 		return
 	}
@@ -125,5 +142,19 @@ func (s *Server) handleAddMock(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	if _, err := fmt.Fprintf(w, "mock registered for %s/%s", mc.Service, mc.Method); err != nil {
 		log.Printf("warning: write response failed: %v", err)
+	}
+}
+
+func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	history := s.historyRegistry.GetHistories()
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(history); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 }

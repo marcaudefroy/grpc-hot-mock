@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/marcaudefroy/grpc-hot-mock/pkg/history"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/mocks"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/reflection"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/server/grpc"
@@ -35,13 +36,15 @@ func main() {
 
 	descriptorRegistry := reflection.NewDefaultDescriptorRegistry()
 	mockRegistry := &mocks.DefaultRegistry{}
-	httpServer := hotServer.NewServer(descriptorRegistry, mockRegistry)
+	historyRegistry := &history.DefaultRegistry{}
+
+	httpServer := hotServer.NewServer(descriptorRegistry, mockRegistry, historyRegistry)
 	go func() {
 		log.Printf("HTTP config server on %s", *httpPort)
 		log.Fatal(http.ListenAndServe(*httpPort, httpServer))
 	}()
 
-	server := grpc.NewServer(*proxyAddr, descriptorRegistry, mockRegistry)
+	server := grpc.NewServer(*proxyAddr, descriptorRegistry, mockRegistry, historyRegistry)
 	lis, err := net.Listen("tcp", *grpcPort)
 	if err != nil {
 		log.Fatalf("listen %s: %v", *grpcPort, err)

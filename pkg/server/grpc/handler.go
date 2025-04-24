@@ -2,8 +2,10 @@ package grpc
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
+	"github.com/marcaudefroy/grpc-hot-mock/pkg/history"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/mocks"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/proxy"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/reflection"
@@ -22,55 +24,83 @@ import (
 func Handler(
 	mockRegistry mocks.Registry,
 	descriptorRegistry reflection.DescriptorRegistry,
+	historyRegistry history.RegistryWriter,
 	p *proxy.Proxy,
 ) grpc.StreamHandler {
 	return func(srv any, stream grpc.ServerStream) error {
 		fullMethod, _ := grpc.MethodFromServerStream(stream)
+
 		if grpclog.V(2) {
 			grpclog.Infof("[UnknownServiceHandler] method call gRPC received: %s", fullMethod)
 		}
 
+		methodDescriptor, ok := descriptorRegistry.GetMethodDescriptor(fullMethod)
+		if !ok {
+			if p == nil {
+				return status.Errorf(codes.Unimplemented, "Method descriptor for %s doesn't exist on registry and proxy isn't enabled", fullMethod)
+			}
+		}
+
 		mc, hasMock := mockRegistry.GetMock(fullMethod)
-		if hasMock {
+		if !hasMock {
+			if p == nil {
+				return status.Errorf(codes.Unimplemented, "No mock found for %s and proxy isn't enabled", fullMethod)
+			}
 			if grpclog.V(2) {
-				grpclog.Infof("[UnknownServiceHandler] Mock found")
+				grpclog.Infof("[UnknownServiceHandler] No mock found, handle request by the proxy")
 			}
-			if mc.DelayMs > 0 {
-				time.Sleep(time.Duration(mc.DelayMs) * time.Millisecond)
-			}
-			if len(mc.Headers) > 0 {
-				if err := stream.SendHeader(metadata.New(mc.Headers)); err != nil {
-					return err
-				}
-			}
-
-			desc, ok := descriptorRegistry.GetMessageDescriptor(mc.ResponseType)
-			if !ok {
-				return status.Errorf(codes.Internal, "schema %q not found", mc.ResponseType)
-			}
-
-			if mc.GrpcStatus != 0 {
-				return status.Errorf(codes.Code(mc.GrpcStatus), "%s", mc.ErrorString)
-			}
-
-			dyn := dynamicpb.NewMessage(desc)
-			raw, _ := json.Marshal(mc.MockResponse)
-			if err := protojson.Unmarshal(raw, dyn); err != nil {
-				if grpclog.V(2) {
-					grpclog.Infof("[UnknownServiceHandler] json→message: %v", err)
-				}
-				return status.Errorf(codes.Internal, "json→message: %v", err)
-			}
-
-			return stream.SendMsg(dyn)
+			return p.Handle(srv, stream)
 		}
 
-		if p == nil {
-			return status.Errorf(codes.Unimplemented, "no mock and no proxy")
+		dynReq := dynamicpb.NewMessage(methodDescriptor.Input())
+		if err := stream.RecvMsg(dynReq); err != nil {
+			return status.Errorf(codes.Internal, "failed to receive message: %v", err)
 		}
+		jsonBytes, err := protojson.Marshal(dynReq)
+		if err != nil {
+			fmt.Printf("Erreur lors de la conversion en JSON : %v\n", err)
+		}
+
 		if grpclog.V(2) {
-			grpclog.Infof("[UnknownServiceHandler] No mock found, handle request by the proxy")
+			grpclog.Infof("[UnknownServiceHandler] Mock found")
 		}
-		return p.Handle(srv, stream)
+		if mc.DelayMs > 0 {
+			time.Sleep(time.Duration(mc.DelayMs) * time.Millisecond)
+		}
+
+		if len(mc.Headers) > 0 {
+			if err := stream.SendHeader(metadata.New(mc.Headers)); err != nil {
+				return err
+			}
+		}
+
+		if mc.GrpcStatus != 0 {
+			return status.Errorf(codes.Code(mc.GrpcStatus), "%s", mc.ErrorString)
+		}
+
+		dyn := dynamicpb.NewMessage(methodDescriptor.Output())
+		raw, _ := json.Marshal(mc.MockResponse)
+		if err := protojson.Unmarshal(raw, dyn); err != nil {
+			if grpclog.V(2) {
+				grpclog.Infof("[UnknownServiceHandler] json→message: %v", err)
+			}
+			return status.Errorf(codes.Internal, "json→message: %v", err)
+		}
+
+		history := history.History{
+			Date: time.Now(),
+			Request: history.Request{
+				FullName:      string(methodDescriptor.FullName()),
+				PayloadString: string(jsonBytes),
+				Payload:       jsonBytes,
+			},
+			Response: history.Response{
+				Status:        int(mc.GrpcStatus),
+				PayloadString: string(raw),
+				Payload:       mc.MockResponse,
+			},
+		}
+		historyRegistry.RegisterHistory(history)
+		return stream.SendMsg(dyn)
 	}
 }

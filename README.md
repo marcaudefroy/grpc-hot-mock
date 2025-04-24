@@ -29,10 +29,12 @@
 - **Hot‑reloadable Protos**: Upload and compile `.proto` files on the fly via HTTP.
 - **Well‑Known Types Auto‑Loading**: Well-known types like `google.protobuf.Timestamp` is automatically loaded (no need to post .proto file for thoses types).
 - **Automated multi‑file import resolution**: upload multiple `.proto` files in a single request and compile them together, automatically resolving all inter‑file dependencies.
+- **History**: Save history of used mock (useful for test).
 - **Dynamic Reflection**: Custom Reflection v1 service serving in-memory descriptors.
 - **Dynamic Mocks**: Define mocks at runtime for any service/method, returning proper Protobuf messages.
 - **Optional Proxy**: Forward unmocked calls to a real backend via `--proxy` flag or "PROXY_TARGET" env.
 - **Unary RPC Support**: Generic handler for unary calls.
+- **Log system**: use grpclog to log all requests for the moment.
 
 ### Currently Not Supported (Coming soon)
 
@@ -40,7 +42,6 @@
 - **Streaming RPCs**: Client‑streaming, server‑streaming, and bidirectional RPCs.
 - **Advanced Matcher** : Mock doesn't support advancded matcher (regexp, eq, etc.. on payload).
 - **Advanced Auth Schemes**: Beyond simple metadata forwarding, OAuth token refresh interceptors, or other custom credential flows.
-- **Log system**: Logging system is not implemented yet.
 
 ## Prerequisites
 
@@ -94,7 +95,6 @@ curl -X POST http://localhost:8080/mocks \
      -d '{
            "service":"example.Greeter",
            "method":"SayHello",
-           "responseType":"example.HelloReply",
            "mockResponse": {"message":"Hello from grpc-hot-mock!"},
            "grpcStatus":0,
            "headers":{"custom":"header"},

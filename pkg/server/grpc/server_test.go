@@ -3,26 +3,33 @@ package grpc_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"testing"
 
+	"github.com/marcaudefroy/grpc-hot-mock/pkg/history"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/mocks"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/reflection"
+
+	"github.com/stretchr/testify/assert"
+
 	grpcServer "github.com/marcaudefroy/grpc-hot-mock/pkg/server/grpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/dynamicpb"
 )
 
 // fakeServerStream implémente grpc.ServerStream pour tester Handler
 type fakeServerStream struct {
-	method  string
-	header  metadata.MD
-	trailer metadata.MD
-	msgs    []any
+	method   string
+	header   metadata.MD
+	trailer  metadata.MD
+	recvData map[string]any
+	msgs     []any
 }
 
 func newFakeServerStream(method string) *fakeServerStream {
@@ -39,7 +46,20 @@ func (f *fakeServerStream) SetHeader(md metadata.MD) error  { f.header = md; ret
 func (f *fakeServerStream) SendHeader(md metadata.MD) error { f.header = md; return nil }
 func (f *fakeServerStream) SetTrailer(md metadata.MD)       { f.trailer = md }
 func (f *fakeServerStream) SendMsg(m any) error             { f.msgs = append(f.msgs, m); return nil }
-func (f *fakeServerStream) RecvMsg(m any) error             { return io.EOF }
+func (f *fakeServerStream) RecvMsg(m any) error {
+	msg, ok := m.(proto.Message)
+	if !ok {
+		return fmt.Errorf("expected proto.Message, got %T", m)
+	}
+	if f.recvData == nil {
+		return io.EOF
+	}
+	raw, err := json.Marshal(f.recvData)
+	if err != nil {
+		return err
+	}
+	return protojson.Unmarshal(raw, msg)
+}
 
 type fakeTransport struct {
 	method  string
@@ -55,7 +75,9 @@ func (f *fakeTransport) SetTrailer(md metadata.MD) error { f.trailer = md; retur
 func TestHandler_NoMock_NoProxy(t *testing.T) {
 	dr := reflection.NewDefaultDescriptorRegistry()
 	mr := &mocks.DefaultRegistry{}
-	handler := grpcServer.Handler(mr, dr, nil)
+	hr := &history.DefaultRegistry{}
+
+	handler := grpcServer.Handler(mr, dr, hr, nil)
 
 	stream := newFakeServerStream("/svc/Method")
 	err := handler(nil, stream)
@@ -69,7 +91,8 @@ func TestHandler_MockResponse(t *testing.T) {
 	dr := reflection.NewDefaultDescriptorRegistry()
 	hello := `syntax = "proto3"; package example;
 message HelloRequest { string name = 1; }
-message HelloReply   { string message = 1; }`
+message HelloReply   { string message = 1; }
+service Greeter{rpc SayHello(HelloRequest) returns(HelloReply);}`
 	if err := dr.RegisterProtoFile("hello.proto", hello); err != nil {
 		t.Fatalf("register proto failed: %v", err)
 	}
@@ -77,7 +100,6 @@ message HelloReply   { string message = 1; }`
 	mc := mocks.MockConfig{
 		Service:      "example.Greeter",
 		Method:       "SayHello",
-		ResponseType: "example.HelloReply",
 		MockResponse: map[string]any{"message": "hi"},
 		GrpcStatus:   0,
 		Headers:      map[string]string{"h": "v"},
@@ -86,8 +108,12 @@ message HelloReply   { string message = 1; }`
 	mr := &mocks.DefaultRegistry{}
 	mr.RegisterMock(mc)
 
-	handler := grpcServer.Handler(mr, dr, nil)
+	hr := &history.DefaultRegistry{}
+
+	handler := grpcServer.Handler(mr, dr, hr, nil)
 	stream := newFakeServerStream("/example.Greeter/SayHello")
+	stream.recvData = map[string]any{"name": "world"}
+
 	if err := handler(nil, stream); err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -115,26 +141,58 @@ message HelloReply   { string message = 1; }`
 	if obj["message"] != "hi" {
 		t.Errorf("expected message=hi, got %v", obj)
 	}
+
+	histories := hr.GetHistories()
+
+	assert.Len(t, histories, 1, "Expected 1 history")
+	h := histories[0]
+	assert.Equal(t, "example.Greeter.SayHello", h.Request.FullName, "FullName on request should be correct")
+
+	expectedJSON, err := json.Marshal(stream.recvData)
+	assert.NoError(t, err, "Error while serializing stream.recvData")
+
+	payloadBytes, ok := h.Request.Payload.([]byte)
+	assert.True(t, ok, "h.Request.Payload should be []byte")
+
+	assert.JSONEq(t, string(expectedJSON), string(payloadBytes), "Payload on request should be correct")
+
+	assert.Equal(t, int(codes.OK), h.Response.Status, "Status on response should be correct")
+	assert.Equal(t, string("{\"message\":\"hi\"}"), h.Response.PayloadString, "PayloadString on response should be correct")
+
+	expectedJSON, err = json.Marshal(mc.MockResponse)
+	assert.NoError(t, err, "Error while serializing mc.MockResponse")
+
+	actualJSON, err := json.Marshal(h.Response.Payload)
+	assert.NoError(t, err, "Error while serializing h.Response.Payload")
+
+	assert.JSONEq(t, string(expectedJSON), string(actualJSON), "Payload on response should be correct")
 }
 
 func TestHandler_GrpcStatusError(t *testing.T) {
 	dr := reflection.NewDefaultDescriptorRegistry()
-	foo := `syntax = "proto3"; package example; message Foo {}`
-	if err := dr.RegisterProtoFile("foo.proto", foo); err != nil {
+	hello := `syntax = "proto3"; package example;
+message HelloRequest { string name = 1; }
+message HelloReply   { string message = 1; }
+service Greeter{rpc SayHello(HelloRequest) returns(HelloReply);}`
+	if err := dr.RegisterProtoFile("hello.proto", hello); err != nil {
 		t.Fatalf("register proto failed: %v", err)
 	}
 
 	mc := mocks.MockConfig{
-		Service:      "example.Greeter",
-		Method:       "SayHello",
-		ResponseType: "example.Foo",
-		GrpcStatus:   int(codes.PermissionDenied),
-		ErrorString:  "Error example",
+		Service:     "example.Greeter",
+		Method:      "SayHello",
+		GrpcStatus:  int(codes.PermissionDenied),
+		ErrorString: "Error example",
 	}
 	mr := &mocks.DefaultRegistry{}
 	mr.RegisterMock(mc)
-	handler := grpcServer.Handler(mr, dr, nil)
+
+	hr := &history.DefaultRegistry{}
+
+	handler := grpcServer.Handler(mr, dr, hr, nil)
 	stream := newFakeServerStream("/example.Greeter/SayHello")
+	stream.recvData = map[string]any{"name": "world"}
+
 	err := handler(nil, stream)
 	st, _ := status.FromError(err)
 	if st.Code() != codes.PermissionDenied {
@@ -158,9 +216,8 @@ service EventService { rpc GetEvent(EventRequest) returns (Event); }`
 
 	mockTime := "2021-07-01T12:00:00Z"
 	mc := mocks.MockConfig{
-		Service:      "example.EventService",
-		Method:       "GetEvent",
-		ResponseType: "example.Event",
+		Service: "example.EventService",
+		Method:  "GetEvent",
 		MockResponse: map[string]any{
 			"id":         "evt-123",
 			"occurredAt": mockTime,
@@ -169,8 +226,12 @@ service EventService { rpc GetEvent(EventRequest) returns (Event); }`
 	mr := &mocks.DefaultRegistry{}
 	mr.RegisterMock(mc)
 
-	handler := grpcServer.Handler(mr, dr, nil)
+	hr := &history.DefaultRegistry{}
+
+	handler := grpcServer.Handler(mr, dr, hr, nil)
 	stream := newFakeServerStream("/example.EventService/GetEvent")
+	stream.recvData = map[string]any{"id": "1123"}
+
 	if err := handler(nil, stream); err != nil {
 		t.Fatalf("handler error: %v", err)
 	}

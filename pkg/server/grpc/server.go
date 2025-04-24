@@ -3,6 +3,7 @@ package grpc
 import (
 	"log"
 
+	"github.com/marcaudefroy/grpc-hot-mock/pkg/history"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/mocks"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/proxy"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/reflection"
@@ -18,6 +19,7 @@ func NewServer(
 	proxyAddr string,
 	descriptorRegistry reflection.DescriptorRegistry,
 	mockRegistry mocks.Registry,
+	historyRegistry history.RegistryWriter,
 ) *grpc.Server {
 	var p *proxy.Proxy
 	if proxyAddr != "" {
@@ -27,8 +29,9 @@ func NewServer(
 			log.Printf("Unable to initiate proxy : %v", err)
 		}
 	}
+
 	srv := grpc.NewServer(
-		grpc.UnknownServiceHandler(Handler(mockRegistry, descriptorRegistry, p)),
+		grpc.UnknownServiceHandler(Handler(mockRegistry, descriptorRegistry, historyRegistry, p)),
 		grpc.ForceServerCodecV2(proxy.NewDefaultMultiplexCodec()),
 	)
 	reflectionv1.RegisterServerReflectionServer(srv, descriptorRegistry)

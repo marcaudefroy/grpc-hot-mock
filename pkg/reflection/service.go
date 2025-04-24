@@ -50,6 +50,7 @@ type DescriptorRegistry interface {
 
 	// GetMessageDescriptor returns the MessageDescriptor for a given fully-qualified name
 	GetMessageDescriptor(fullName string) (protoreflect.MessageDescriptor, bool)
+	GetMethodDescriptor(fullName string) (protoreflect.MethodDescriptor, bool)
 
 	// RegisterProtoFile ingests and compiles a single .proto file, registering its descriptors
 	RegisterProtoFile(filename, content string) error
@@ -78,8 +79,11 @@ type defaultDescriptorRegistry struct {
 	allFileDescMu      sync.RWMutex
 
 	// mapping of message fullnames to their descriptors
-	schemaRegistry   map[string]protoreflect.MessageDescriptor
-	schemaRegistryMu sync.RWMutex
+	messageDescriptorRegistry   map[string]protoreflect.MessageDescriptor
+	messageDescriptorRegistryMu sync.RWMutex
+
+	methodDescriptorRegistry   map[string]protoreflect.MethodDescriptor
+	methodDescriptorRegistryMu sync.RWMutex
 }
 
 // NewDefaultDescriptorRegistry creates a registry preloaded with all standard Protobuf descriptors
@@ -151,27 +155,55 @@ func (s *defaultDescriptorRegistry) RegisterFiles(fds linker.Files) {
 	defer s.allFileDescMu.Unlock()
 	for _, fd := range fds {
 		s.allFileDescriptors = append(s.allFileDescriptors, fd)
-		s.schemaRegistryMu.Lock()
-		if s.schemaRegistry == nil {
-			s.schemaRegistry = map[string]protoreflect.MessageDescriptor{}
+
+		s.messageDescriptorRegistryMu.Lock()
+		if s.messageDescriptorRegistry == nil {
+			s.messageDescriptorRegistry = map[string]protoreflect.MessageDescriptor{}
 		}
 
 		for i := range fd.Messages().Len() {
 			md := fd.Messages().Get(i)
-			if _, exists := s.schemaRegistry[string(md.FullName())]; !exists {
-				s.schemaRegistry[string(md.FullName())] = md
-				log.Printf("Registered schema: %s", md.FullName())
+			if _, exists := s.messageDescriptorRegistry[string(md.FullName())]; !exists {
+				s.messageDescriptorRegistry[string(md.FullName())] = md
+				log.Printf("message descriptor registered : %s", md.FullName())
 			}
 		}
-		s.schemaRegistryMu.Unlock()
+		s.messageDescriptorRegistryMu.Unlock()
+
+		s.methodDescriptorRegistryMu.Lock()
+		if s.methodDescriptorRegistry == nil {
+			s.methodDescriptorRegistry = map[string]protoreflect.MethodDescriptor{}
+		}
+
+		for i := 0; i < fd.Services().Len(); i++ {
+			svc := fd.Services().Get(i)
+
+			for j := 0; j < svc.Methods().Len(); j++ {
+				method := svc.Methods().Get(j)
+				fullMethodName := fmt.Sprintf("/%s/%s", svc.FullName(), method.Name())
+				s.methodDescriptorRegistry[fullMethodName] = method
+				log.Printf("message descriptor registered: %s", fullMethodName)
+			}
+		}
+
+		s.methodDescriptorRegistryMu.Unlock()
+
 	}
 }
 
 // GetMessageDescriptor retrieves a message descriptor by full name
 func (s *defaultDescriptorRegistry) GetMessageDescriptor(fullName string) (protoreflect.MessageDescriptor, bool) {
-	s.schemaRegistryMu.RLock()
-	defer s.schemaRegistryMu.RUnlock()
-	md, ok := s.schemaRegistry[fullName]
+	s.messageDescriptorRegistryMu.RLock()
+	defer s.messageDescriptorRegistryMu.RUnlock()
+	md, ok := s.messageDescriptorRegistry[fullName]
+	return md, ok
+}
+
+// GetMessageDescriptor retrieves a message descriptor by full name
+func (s *defaultDescriptorRegistry) GetMethodDescriptor(fullName string) (protoreflect.MethodDescriptor, bool) {
+	s.methodDescriptorRegistryMu.RLock()
+	defer s.methodDescriptorRegistryMu.RUnlock()
+	md, ok := s.methodDescriptorRegistry[fullName]
 	return md, ok
 }
 
