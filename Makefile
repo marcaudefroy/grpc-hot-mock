@@ -11,6 +11,15 @@ VERSION ?= dev
 
 GOBIN ?= $(shell go env GOPATH)/bin
 
+suite = **/*.venom.yml
+vars = ./tests/vars-venom.yml
+
+venom_version = v1.2.0
+VENOM := $(GOBIN)/venom-$(venom_version)
+$(VENOM):
+	curl -sSfLo $(VENOM) https://github.com/ovh/venom/releases/download/$(venom_version)/venom.darwin-amd64
+	chmod +x $(VENOM)
+
 .PHONY: run ensure-golangci-lint lint build test ci
 
 run:
@@ -34,7 +43,10 @@ build:
 	go build -o bin/$(BINARY) $(CMD_PATH)
 
 test:
-	go test ./...
+	go test ./pkg/...
 
 ci: lint test build
 
+
+venom: $(VENOM)
+	$(VENOM) run './tests/$(suite)' --var-from-file $(vars) $(args)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"slices"
 	"sync"
 
 	"github.com/bufbuild/protocompile"
@@ -92,15 +91,16 @@ func NewDefaultDescriptorRegistry() DescriptorRegistry {
 func (s *defaultDescriptorRegistry) IngestProtoFile(filename, content string) {
 	s.protoFilesMu.Lock()
 	defer s.protoFilesMu.Unlock()
+
 	if s.protoFiles == nil {
 		s.protoFiles = map[string]string{}
 	}
-	s.protoFiles[filename] = content
 
 	if s.protoFileNames == nil {
 		s.protoFileNames = []string{}
 	}
-	if !slices.Contains(s.protoFileNames, filename) {
+	if _, exists := s.protoFiles[filename]; !exists {
+		s.protoFiles[filename] = content
 		s.protoFileNames = append(s.protoFileNames, filename)
 	}
 }
@@ -143,6 +143,16 @@ func (s *defaultDescriptorRegistry) RegisterFiles(fds linker.Files) {
 	s.allFileDescMu.Lock()
 	defer s.allFileDescMu.Unlock()
 	for _, fd := range fds {
+		alreadyRegistered := false
+		for _, existing := range s.allFileDescriptors {
+			if existing.Path() == fd.Path() {
+				alreadyRegistered = true
+				break
+			}
+		}
+		if alreadyRegistered {
+			continue
+		}
 		s.allFileDescriptors = append(s.allFileDescriptors, fd)
 
 		s.messageDescriptorRegistryMu.Lock()
@@ -150,11 +160,11 @@ func (s *defaultDescriptorRegistry) RegisterFiles(fds linker.Files) {
 			s.messageDescriptorRegistry = map[string]protoreflect.MessageDescriptor{}
 		}
 
-		for i := range fd.Messages().Len() {
+		for i := 0; i < fd.Messages().Len(); i++ {
 			md := fd.Messages().Get(i)
 			if _, exists := s.messageDescriptorRegistry[string(md.FullName())]; !exists {
 				s.messageDescriptorRegistry[string(md.FullName())] = md
-				log.Printf("message descriptor registered : %s", md.FullName())
+				log.Printf("message descriptor registered: %s", md.FullName())
 			}
 		}
 		s.messageDescriptorRegistryMu.Unlock()
@@ -166,12 +176,11 @@ func (s *defaultDescriptorRegistry) RegisterFiles(fds linker.Files) {
 
 		for i := 0; i < fd.Services().Len(); i++ {
 			svc := fd.Services().Get(i)
-
 			for j := 0; j < svc.Methods().Len(); j++ {
 				method := svc.Methods().Get(j)
 				fullMethodName := fmt.Sprintf("/%s/%s", svc.FullName(), method.Name())
 				s.methodDescriptorRegistry[fullMethodName] = method
-				log.Printf("message descriptor registered: %s", fullMethodName)
+				log.Printf("method descriptor registered: %s", fullMethodName)
 			}
 		}
 		s.methodDescriptorRegistryMu.Unlock()

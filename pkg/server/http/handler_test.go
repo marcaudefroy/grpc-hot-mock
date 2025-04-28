@@ -13,29 +13,29 @@ import (
 	httpServer "github.com/marcaudefroy/grpc-hot-mock/pkg/server/http"
 )
 
-// Test the /upload-proto endpoint with valid and invalid payloads
-func TestHandleUploadProto(t *testing.T) {
+func TestHandleRegisterProtoJSON(t *testing.T) {
 	dr := reflection.NewDefaultDescriptorRegistry()
 	mr := &mocks.DefaultRegistry{}
 	hr := &history.DefaultRegistry{}
 	mux := httpServer.NewServer(dr, mr, hr)
 
-	// Successful upload
-	payload := map[string]string{"filename": "test.proto", "content": "syntax = \"proto3\"; package p; message M{}"}
+	// Successful registration
+	payload := map[string]any{"files": []map[string]string{
+		{"filename": "test.proto", "content": "syntax = \"proto3\"; package p; message M{}"},
+	}}
 	body, _ := json.Marshal(payload)
-	req := httptest.NewRequest(http.MethodPost, "/upload-proto", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/protos/register/json", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
+
 	if rec.Code != http.StatusCreated {
 		t.Errorf("expected 201 Created, got %d", rec.Code)
 	}
-	if rec.Body.String() != "proto test.proto uploaded, descriptors registered" {
-		t.Errorf("unexpected body: %s", rec.Body.String())
-	}
+	assertNoErrorInBody(t, rec.Body)
 
 	// Invalid JSON
-	req = httptest.NewRequest(http.MethodPost, "/upload-proto", bytes.NewReader([]byte(`{invalid`)))
+	req = httptest.NewRequest(http.MethodPost, "/protos/register/json", bytes.NewReader([]byte(`{invalid`)))
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -43,9 +43,11 @@ func TestHandleUploadProto(t *testing.T) {
 	}
 
 	// Missing fields
-	payload = map[string]string{"filename": "", "content": ""}
+	payload = map[string]any{"files": []map[string]string{
+		{"filename": "", "content": ""},
+	}}
 	body, _ = json.Marshal(payload)
-	req = httptest.NewRequest(http.MethodPost, "/upload-proto", bytes.NewReader(body))
+	req = httptest.NewRequest(http.MethodPost, "/protos/register/json", bytes.NewReader(body))
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -53,35 +55,39 @@ func TestHandleUploadProto(t *testing.T) {
 	}
 }
 
-// Test the /injest and /compile endpoints
-func TestIngestAndCompileEndpoints(t *testing.T) {
+func TestHandleIngestAndCompile(t *testing.T) {
 	dr := reflection.NewDefaultDescriptorRegistry()
 	mr := &mocks.DefaultRegistry{}
 	hr := &history.DefaultRegistry{}
 	mux := httpServer.NewServer(dr, mr, hr)
 
-	// Ingest multiple protos
-	bulk := map[string]any{"files": []map[string]string{
+	// Ingest only
+	payload := map[string]any{"files": []map[string]string{
 		{"filename": "a.proto", "content": "syntax = \"proto3\"; package x; message A{}"},
 		{"filename": "b.proto", "content": "syntax = \"proto3\"; package x; message B{}"},
 	}}
-	body, _ := json.Marshal(bulk)
-	req := httptest.NewRequest(http.MethodPost, "/injest", bytes.NewReader(body))
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/protos/ingest/json", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusAccepted {
-		t.Errorf("expected 202 Accepted, got %d", rec.Code)
-	}
 
-	// Compile ingested protos
-	req = httptest.NewRequest(http.MethodPost, "/compile", nil)
+	if rec.Code != http.StatusCreated {
+		t.Errorf("expected 201 Created for ingestion, got %d", rec.Code)
+	}
+	assertNoErrorInBody(t, rec.Body)
+
+	// Compile ingested
+	req = httptest.NewRequest(http.MethodPost, "/protos/ingest/compile", nil)
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200 OK, got %d", rec.Code)
-	}
 
-	// Now reflection registry should have descriptors
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 OK for compilation, got %d", rec.Code)
+	}
+	assertNoErrorInBody(t, rec.Body)
+
+	// Verify descriptors
 	if _, ok := dr.GetMessageDescriptor("x.A"); !ok {
 		t.Error("descriptor for x.A not found after compile")
 	}
@@ -90,42 +96,12 @@ func TestIngestAndCompileEndpoints(t *testing.T) {
 	}
 }
 
-// Test handleBulkUploadProtos via /upload-protos
-func TestHandleBulkUploadProtos(t *testing.T) {
-	dr := reflection.NewDefaultDescriptorRegistry()
-	mr := &mocks.DefaultRegistry{}
-	hr := &history.DefaultRegistry{}
-	mux := httpServer.NewServer(dr, mr, hr)
-
-	bulk := map[string]any{"files": []map[string]string{
-		{"filename": "c.proto", "content": "syntax = \"proto3\"; package y; message C{}"},
-		{"filename": "d.proto", "content": "syntax = \"proto3\"; package y; message D{}"},
-	}}
-	body, _ := json.Marshal(bulk)
-	req := httptest.NewRequest(http.MethodPost, "/upload-protos", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusCreated {
-		t.Errorf("expected 201 Created, got %d", rec.Code)
-	}
-
-	// Descriptors should be immediately available
-	if _, ok := dr.GetMessageDescriptor("y.C"); !ok {
-		t.Error("descriptor for y.C not found after bulk upload")
-	}
-	if _, ok := dr.GetMessageDescriptor("y.D"); !ok {
-		t.Error("descriptor for y.D not found after bulk upload")
-	}
-}
-
-// Test handleAddMock endpoint
 func TestHandleAddMock(t *testing.T) {
 	dr := reflection.NewDefaultDescriptorRegistry()
 	mr := &mocks.DefaultRegistry{}
 	hr := &history.DefaultRegistry{}
 	mux := httpServer.NewServer(dr, mr, hr)
 
-	// Register mock
 	mock := map[string]any{
 		"service":      "svc",
 		"method":       "M",
@@ -135,12 +111,48 @@ func TestHandleAddMock(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/mocks", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
+
 	if rec.Code != http.StatusCreated {
-		t.Errorf("expected 201 Created, got %d", rec.Code)
+		t.Errorf("expected 201 Created for mock registration, got %d", rec.Code)
+	}
+	assertNoErrorInBody(t, rec.Body)
+
+	if _, exists := mr.GetMock("/svc/M"); !exists {
+		t.Error("mock not properly registered")
+	}
+}
+
+func TestHandleHistoryAndClear(t *testing.T) {
+	dr := reflection.NewDefaultDescriptorRegistry()
+	mr := &mocks.DefaultRegistry{}
+	hr := &history.DefaultRegistry{}
+	mux := httpServer.NewServer(dr, mr, hr)
+
+	// Fetch history (should be empty initially)
+	req := httptest.NewRequest(http.MethodGet, "/history", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 OK on /history, got %d", rec.Code)
 	}
 
-	// Check registry
-	if _, exists := mr.GetMock("/svc/M"); !exists {
-		t.Error("mock not registered")
+	// Clear history
+	req = httptest.NewRequest(http.MethodPost, "/history/clear", nil)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 OK on /history/clear, got %d", rec.Code)
+	}
+	assertNoErrorInBody(t, rec.Body)
+}
+
+// Helper
+func assertNoErrorInBody(t *testing.T, body *bytes.Buffer) {
+	var resp map[string]any
+	if err := json.NewDecoder(body).Decode(&resp); err != nil {
+		t.Errorf("failed to decode JSON body: %v", err)
+	}
+	if errStr, ok := resp["error"]; ok {
+		t.Errorf("unexpected error in response: %v", errStr)
 	}
 }

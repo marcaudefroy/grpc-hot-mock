@@ -34,7 +34,7 @@ func NewServer(
 	srv := grpc.NewServer(
 		grpc.UnknownServiceHandler(Handler(mockRegistry, descriptorRegistry, historyRegistry, p)),
 		grpc.ForceServerCodecV2(proxy.NewDefaultMultiplexCodec()),
-		grpc.StreamInterceptor(StreamInterceptor(historyRegistry)),
+		grpc.StreamInterceptor(StreamInterceptor(historyRegistry, descriptorRegistry)),
 	)
 	serverReflectionV1 := reflection.NewServerReflectionV1(descriptorRegistry)
 	serverReflectionV1alpha := reflection.NewServerReflectionV1Alpha(descriptorRegistry)

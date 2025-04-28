@@ -5,20 +5,22 @@ testcases:
     steps:
       - type: http
         method: POST
-        url: "{{.server_http}}/history/clean"
+        url: "{{.server_http}}/history/clear"
         headers:
           Content-Type: application/json
         assertions:
           - result.statuscode ShouldEqual 200
       - type: http
         method: POST
-        url: "{{.server_http}}/upload-proto"
+        url: "{{.server_http}}/protos/register/json"
         headers:
           Content-Type: application/json
         body: >
           {
-            "filename": "hello.proto",
-            "content": "syntax=\"proto3\"; package example; message HelloRequest{string name=1;} message HelloReply{string message=1;} service Greeter{rpc SayHello(HelloRequest) returns(HelloReply);}"
+            "files": [{ 
+              "filename": "hello.proto",
+              "content": "syntax=\"proto3\"; package example; message HelloRequest{string name=1;} message HelloReply{string message=1;} service Greeter{rpc SayHello(HelloRequest) returns(HelloReply);}"
+            }]
           }
         assertions:
           - result.statuscode ShouldEqual 201

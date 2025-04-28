@@ -2,10 +2,11 @@
 
 **grpc-hot-mock** is a dynamic, hot-reloadable gRPC mock/proxy server that lets you:
 
-- **Upload** `.proto` definitions at runtime, compile them in-memory, and extract descriptors.
+- **Register** `.proto` definitions at runtime, compile them in-memory, and extract descriptors.
 - **Mock** any service/method by returning typed messages built from JSON.
 - **Discover** services via a custom gRPC Reflection v1 service—no static `.proto` files needed by clients.
-- **Optionally [*draft*] proxy** non-mocked calls to a real gRPC backend. 
+- **Optionally proxy** non-mocked calls to a real gRPC backend. 
+- **History Tracking**: Records all gRPC exchanges (sent/received) for inspection.
 
 ## Table of Contents
 
@@ -29,12 +30,12 @@
 - **Hot‑reloadable Protos**: Upload and compile `.proto` files on the fly via HTTP.
 - **Well‑Known Types Auto‑Loading**: Well-known types like `google.protobuf.Timestamp` is automatically loaded (no need to post .proto file for thoses types).
 - **Automated multi‑file import resolution**: upload multiple `.proto` files in a single request and compile them together, automatically resolving all inter‑file dependencies.
-- **History**: Save history of used mock (useful for test).
+- **History Tracking**: Records all gRPC exchanges (sent/received) for inspection.
 - **Dynamic Reflection**: Custom Reflection v1 service serving in-memory descriptors.
 - **Dynamic Mocks**: Define mocks at runtime for any service/method, returning proper Protobuf messages.
 - **Optional Proxy**: Forward unmocked calls to a real backend via `--proxy` flag or "PROXY_TARGET" env.
 - **Unary RPC Support**: Generic handler for unary calls.
-- **Log system**: use grpclog to log all requests for the moment.
+- **Structured Logging**: All gRPC activity is logged via `grpclog`.
 
 ### Currently Not Supported (Coming soon)
 
@@ -63,6 +64,8 @@ go mod tidy
 
 ### Start the Server
 
+#### With go
+
 ```bash
 go run cmd/main.go \
   -grpc_port=":50051" \
@@ -74,18 +77,125 @@ go run cmd/main.go \
 - `-http_port`: address for HTTP config API (default `:8080`).
 - `--proxy`: optional backend for proxying unmocked calls.
 
-### Upload a .proto
+#### With docker
 
 ```bash
-curl -X POST http://localhost:8080/upload-proto \
-     -H "Content-Type: application/json" \
-     -d '{
-           "filename":"hello.proto",
-           "content":"syntax=\"proto3\"; package example; message HelloRequest{string name=1;} message HelloReply{string message=1;} service Greeter{rpc SayHello(HelloRequest) returns(HelloReply);}"
-         }'
+docker run --name grpc-hot \
+  -p 8003:8080 \
+  -p 50051:50051 \
+  -e PROXY_TARGET=temporal:7233 \
+  ghcr.io/marcaudefroy/grpc-hot-mock:latest
 ```
 
+### Register .proto Files
+
+#### By compiling .proto files immediatly
+
 - Compiles in-memory and registers all message and service descriptors.
+
+##### With proto on json format
+
+```bash
+curl -X POST http://localhost:8080/protos/register/json \
+  -H "Content-Type: application/json" \
+  -d '{
+        "files": [
+          {
+            "filename": "hello.proto",
+            "content": "syntax=\"proto3\"; package example; message HelloRequest{string name=1;} message HelloReply{string message=1;} service Greeter{rpc SayHello(HelloRequest) returns(HelloReply);}"
+          }
+        ]
+      }'
+```
+
+##### With proto on file format
+
+```bash
+curl -X POST http://localhost:8080/protos/register/file \
+  -F "files=@/path/to/your/first.proto;fileName=your/relative/path/first.proto" \
+  -F "files=@/path/to/your/second.proto;filename=your/relative/path/second.proto" 
+```
+Remarks : 
+- The filename field in the multipart request must match exactly the import path expected inside the .proto files.
+- The server extracts the full filename from the Content-Disposition header to correctly resolve imports during compilation.
+
+Example : 
+
+```
+.
+├── shared/
+│   └── common.proto
+└── api/
+    └── v1/
+        └── hello.proto
+```
+
+*shared/common.proto*
+```.proto
+syntax = "proto3";
+package shared;
+
+message Empty {}
+
+```
+
+*a*pi/v1/hello.proto
+```
+syntax = "proto3";
+package example.v1;
+
+import "shared/common.proto";
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloReply {
+  string message = 1;
+  shared.Empty meta = 2;
+}
+
+service Greeter {
+  rpc SayHello (HelloRequest) returns (HelloReply);
+}
+```
+
+To register the protos, you can use the following command :
+```bash
+curl -X POST http://localhost:8080/protos/register/file \
+  -F "files=@shared/common.proto;filename=shared/common.proto" \
+  -F "files=@api/v1/hello.proto;filename=api/v1/hello.proto"
+```
+
+#### By ingest .proto files and compile later
+
+
+```
+curl -X POST http://localhost:8080/protos/ingest/json \
+  -H "Content-Type: application/json" \
+  -d '{
+        "files": [
+          {
+            "filename": "common.proto",
+            "content": "syntax=\"proto3\"; package shared; message Empty {}"
+          }
+        ]
+      }'
+```
+
+```bash
+curl -X POST http://localhost:8080/protos/ingest/file \
+  -F "files=@shared/common.proto;filename=shared/common.proto" \
+  -F "files=@api/v1/hello.proto;filename=api/v1/hello.proto"
+```
+
+*Continue to injest one or more .proto*
+
+At the end, you can compile the protos :
+
+```
+curl -X POST http://localhost:8080/protos/ingest/compile
+```
 
 ### Register a Mock
 
@@ -255,20 +365,20 @@ curl -XGET http://localhost:8080/history
 
 ### HTTP Config Endpoints
 
-- `POST /upload_proto` — `{"filename":"...","content":"..."}`
-- `POST /mocks` — `{"service":"...","method":"...","responseType":"...","mockResponse":{...},...}`
+| Endpoint                  | Method | Description                                              |
+|----------------------------|--------|----------------------------------------------------------|
+| `/protos/register/json`    | POST   | Upload multiple `.proto` files via JSON and compile immediately. |
+| `/protos/register/file`    | POST   | Upload multiple `.proto` files via `multipart/form-data` and compile immediately. |
+| `/protos/ingest/json`      | POST   | Ingest multiple `.proto` files via JSON (deferred compilation). |
+| `/protos/ingest/file`      | POST   | Ingest multiple `.proto` files via `multipart/form-data` (deferred compilation). |
+| `/protos/ingest/compile`   | POST   | Compile and register all previously ingested `.proto` files. |
+| `/mocks`                   | POST   | Register a mock configuration for a service/method.      |
+| `/history`                 | GET    | Fetch the call history (captured gRPC exchanges).         |
+| `/history/clear`           | POST   | Clear the saved call history.                            |
+
 
 ---
 
-## Architecture Overview
-
-1. **In-Memory Storage**: Maps filenames to `.proto` content.
-2. **Dynamic Compilation**: Buf `protocompile` produces `linker.Files` descriptors.
-3. **Descriptor Registry**: Stores all `FileDescriptor` and `MessageDescriptor` for runtime.
-4. **Custom Reflection v1**: Implements `ServerReflection` on in-memory descriptors.
-5. **Generic Handler**: Intercepts all RPCs, applies mock logic or proxies to backend.
-
----
 
 ## License
 

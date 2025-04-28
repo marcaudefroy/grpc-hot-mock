@@ -7,11 +7,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/history"
+	"github.com/marcaudefroy/grpc-hot-mock/pkg/reflection"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/dynamicpb"
 )
 
@@ -21,9 +23,10 @@ type wrappedServerStream struct {
 	historyRegistry  history.RegistryWriter
 	history          *history.History
 	proxified        bool
+	methodDescriptor protoreflect.MethodDescriptor
 }
 
-func StreamInterceptor(historyRegistry history.RegistryWriter) grpc.StreamServerInterceptor {
+func StreamInterceptor(historyRegistry history.RegistryWriter, descriptorRegistry reflection.DescriptorRegistry) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		h := history.History{
 			ID:         uuid.NewString(),
@@ -39,6 +42,9 @@ func StreamInterceptor(historyRegistry history.RegistryWriter) grpc.StreamServer
 			historyRegistry:  historyRegistry,
 			streamServerInfo: info,
 			history:          &h,
+		}
+		if method, ok := descriptorRegistry.GetMethodDescriptor(info.FullMethod); ok {
+			wrappedStream.methodDescriptor = method
 		}
 
 		err := handler(srv, wrappedStream)
@@ -101,6 +107,31 @@ func (w *wrappedServerStream) recordMessage(direction string, payload any) {
 			payloadObj = m
 		}
 	case []byte:
+		if w.methodDescriptor != nil {
+			var dyn *dynamicpb.Message
+			if direction == "recv" {
+				dyn = dynamicpb.NewMessage(w.methodDescriptor.Input())
+			} else {
+				dyn = dynamicpb.NewMessage(w.methodDescriptor.Output())
+			}
+			if err := proto.Unmarshal(m, dyn); err == nil {
+				b, err := protojson.Marshal(dyn)
+				if err == nil {
+					payloadStr = string(b)
+
+					var tmp map[string]interface{}
+					if err := json.Unmarshal(b, &tmp); err == nil {
+						payloadObj = tmp
+					} else {
+						payloadObj = nil
+					}
+
+					recognized = true
+					break
+				}
+			}
+		}
+
 		payloadStr = encodeBase64(m)
 		payloadObj = nil
 		recognized = false

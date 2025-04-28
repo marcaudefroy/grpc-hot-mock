@@ -40,7 +40,7 @@ type RegisterReadWriter interface {
 
 type RegistryWriter interface {
 	SaveHistory(History)
-	Clean()
+	Clear()
 }
 type RegistryReader interface {
 	GetHistories() []History
@@ -78,7 +78,7 @@ func (r *DefaultRegistry) GetHistories() []History {
 	return histories
 }
 
-func (r *DefaultRegistry) Clean() {
+func (r *DefaultRegistry) Clear() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.histories = []History{}

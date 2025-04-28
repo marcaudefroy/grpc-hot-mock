@@ -108,7 +108,7 @@ service Greeter{rpc SayHello(HelloRequest) returns(HelloReply);}`
 
 	hr := &history.DefaultRegistry{}
 
-	interceptor := grpcServer.StreamInterceptor(hr)
+	interceptor := grpcServer.StreamInterceptor(hr, dr)
 	handler := grpcServer.Handler(mr, dr, hr, nil)
 
 	wrappedHandler := func(srv any, stream grpc.ServerStream) error {
