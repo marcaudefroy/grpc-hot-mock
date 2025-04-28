@@ -80,8 +80,8 @@ go run cmd/main.go \
 #### With docker
 
 ```bash
-docker run --name grpc-hot \
-  -p 8003:8080 \
+docker run --name grpc-hot-mock \
+  -p 8080:8080 \
   -p 50051:50051 \
   -e PROXY_TARGET=temporal:7233 \
   ghcr.io/marcaudefroy/grpc-hot-mock:latest
