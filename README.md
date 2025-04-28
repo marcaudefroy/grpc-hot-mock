@@ -95,6 +95,7 @@ curl -X POST http://localhost:8080/mocks \
      -d '{
            "service":"example.Greeter",
            "method":"SayHello",
+           "responseType":"example.HelloReply",
            "mockResponse": {"message":"Hello from grpc-hot-mock!"},
            "grpcStatus":0,
            "headers":{"custom":"header"},
@@ -115,6 +116,142 @@ grpcurl -plaintext \
 ```
 
 - Uses Reflection v1: no need for `.proto` on the client.
+
+### Show history
+
+```bash
+curl -XGET http://localhost:8080/history
+[
+    {
+        "id": "5643fa11-cde4-4139-9428-a827e795f126",
+        "start_time": "2025-04-28T17:18:52.444474+02:00",
+        "end_time": "2025-04-28T17:18:52.446256+02:00",
+        "full_method": "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
+        "messages": [
+            {
+                "direction": "recv",
+                "timestamp": "2025-04-28T17:18:52.444733+02:00",
+                "recognized": true,
+                "proxified": false,
+                "payload_string": "{\"listServices\":\"*\"}",
+                "payload": {
+                    "MessageRequest": {
+                        "ListServices": "*"
+                    }
+                }
+            },
+            {
+                "direction": "send",
+                "timestamp": "2025-04-28T17:18:52.444874+02:00",
+                "recognized": true,
+                "proxified": false,
+                "payload_string": "{\"originalRequest\":{\"listServices\":\"*\"}, \"listServicesResponse\":{\"service\":[{\"name\":\"grpc.reflection.v1.ServerReflection\"}, {\"name\":\"grpc.reflection.v1alpha.ServerReflection\"}, {\"name\":\"example.Greeter\"}]}}",
+                "payload": {
+                    "original_request": {
+                        "MessageRequest": {
+                            "ListServices": "*"
+                        }
+                    },
+                    "MessageResponse": {
+                        "ListServicesResponse": {
+                            "service": [
+                                {
+                                    "name": "grpc.reflection.v1.ServerReflection"
+                                },
+                                {
+                                    "name": "grpc.reflection.v1alpha.ServerReflection"
+                                },
+                                {
+                                    "name": "example.Greeter"
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        ],
+        "state": "CLOSED",
+        "grpc_code": 0,
+        "grpc_message": ""
+    },
+    {
+        "id": "eb5e1519-5a94-4c5c-95df-8ea9832840ef",
+        "start_time": "2025-04-28T17:18:58.753754+02:00",
+        "end_time": "2025-04-28T17:18:58.857932+02:00",
+        "full_method": "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
+        "messages": [
+            {
+                "direction": "recv",
+                "timestamp": "2025-04-28T17:18:58.753833+02:00",
+                "recognized": true,
+                "proxified": false,
+                "payload_string": "{\"fileContainingSymbol\":\"example.Greeter\"}",
+                "payload": {
+                    "MessageRequest": {
+                        "FileContainingSymbol": "example.Greeter"
+                    }
+                }
+            },
+            {
+                "direction": "send",
+                "timestamp": "2025-04-28T17:18:58.754086+02:00",
+                "recognized": true,
+                "proxified": false,
+                "payload_string": "{\"originalRequest\":{\"fileContainingSymbol\":\"example.Greeter\"}, \"fileDescriptorResponse\":{\"fileDescriptorProto\":[\"CgtoZWxsby5wcm90bxIHZXhhbXBsZSIiCgxIZWxsb1JlcXVlc3QSEgoEbmFtZRgBIAEoCVIEbmFtZSImCgpIZWxsb1JlcGx5EhgKB21lc3NhZ2UYASABKAlSB21lc3NhZ2UyQQoHR3JlZXRlchI2CghTYXlIZWxsbxIVLmV4YW1wbGUuSGVsbG9SZXF1ZXN0GhMuZXhhbXBsZS5IZWxsb1JlcGx5YgZwcm90bzM=\"]}}",
+                "payload": {
+                    "original_request": {
+                        "MessageRequest": {
+                            "FileContainingSymbol": "example.Greeter"
+                        }
+                    },
+                    "MessageResponse": {
+                        "FileDescriptorResponse": {
+                            "file_descriptor_proto": [
+                                "CgtoZWxsby5wcm90bxIHZXhhbXBsZSIiCgxIZWxsb1JlcXVlc3QSEgoEbmFtZRgBIAEoCVIEbmFtZSImCgpIZWxsb1JlcGx5EhgKB21lc3NhZ2UYASABKAlSB21lc3NhZ2UyQQoHR3JlZXRlchI2CghTYXlIZWxsbxIVLmV4YW1wbGUuSGVsbG9SZXF1ZXN0GhMuZXhhbXBsZS5IZWxsb1JlcGx5YgZwcm90bzM="
+                            ]
+                        }
+                    }
+                }
+            }
+        ],
+        "state": "CLOSED",
+        "grpc_code": 0,
+        "grpc_message": ""
+    },
+    {
+        "id": "5702a9b3-8519-4166-ae90-ff0fd42a63f3",
+        "start_time": "2025-04-28T17:18:58.75592+02:00",
+        "end_time": "2025-04-28T17:18:58.857448+02:00",
+        "full_method": "/example.Greeter/SayHello",
+        "messages": [
+            {
+                "direction": "recv",
+                "timestamp": "2025-04-28T17:18:58.756657+02:00",
+                "recognized": true,
+                "proxified": false,
+                "payload_string": "{\"name\":\"Alice\"}",
+                "payload": {
+                    "name": "Alice"
+                }
+            },
+            {
+                "direction": "send",
+                "timestamp": "2025-04-28T17:18:58.857437+02:00",
+                "recognized": true,
+                "proxified": false,
+                "payload_string": "{\"message\":\"Hello from grpc-hot-mock!\"}",
+                "payload": {
+                    "message": "Hello from grpc-hot-mock!"
+                }
+            }
+        ],
+        "state": "CLOSED",
+        "grpc_code": 0,
+        "grpc_message": ""
+    }
+]
+```
+
 
 ### HTTP Config Endpoints
 

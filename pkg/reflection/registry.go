@@ -3,23 +3,17 @@ package reflection
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"slices"
 	"sync"
 
 	"github.com/bufbuild/protocompile"
 	"github.com/bufbuild/protocompile/linker"
-	"google.golang.org/grpc/codes"
-	reflectionv1 "google.golang.org/grpc/reflection/grpc_reflection_v1"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 )
 
 // This service transforms raw .proto definitions into fully linked FileDescriptor objects
-// and exposes them through the gRPC Reflection v1 API for dynamic schema discovery.
 //
 // Workflow:
 //   1) Load .proto sources into memory.
@@ -36,21 +30,16 @@ import (
 //     Ingest, compile immediately, and register resulting descriptors.
 
 // Process multiple files :
-//   • IngestProtoFile(name, src)
+//   - IngestProtoFile(name, src)
 //     Store raw .proto source in memory for deferred compilation.
-//   • CompileAndRegister() error
+//   - CompileAndRegister() error
 //     Compile all previously ingested sources in one go and register their descriptors.
-//
-// Use by calling:
-//   reflectionv1.RegisterServerReflectionServer(grpcServer, registry)
-
 type DescriptorRegistry interface {
-	// ServerReflectionServer handles gRPC reflection requests
-	reflectionv1.ServerReflectionServer
-
 	// GetMessageDescriptor returns the MessageDescriptor for a given fully-qualified name
 	GetMessageDescriptor(fullName string) (protoreflect.MessageDescriptor, bool)
 	GetMethodDescriptor(fullName string) (protoreflect.MethodDescriptor, bool)
+
+	GetFileDescriptors() []protoreflect.FileDescriptor
 
 	// RegisterProtoFile ingests and compiles a single .proto file, registering its descriptors
 	RegisterProtoFile(filename, content string) error
@@ -185,10 +174,16 @@ func (s *defaultDescriptorRegistry) RegisterFiles(fds linker.Files) {
 				log.Printf("message descriptor registered: %s", fullMethodName)
 			}
 		}
-
 		s.methodDescriptorRegistryMu.Unlock()
-
 	}
+}
+
+func (s *defaultDescriptorRegistry) GetFileDescriptors() []protoreflect.FileDescriptor {
+	s.allFileDescMu.RLock()
+	defer s.allFileDescMu.RUnlock()
+	descriptorsCopy := make([]protoreflect.FileDescriptor, len(s.allFileDescriptors))
+	copy(descriptorsCopy, s.allFileDescriptors)
+	return descriptorsCopy
 }
 
 // GetMessageDescriptor retrieves a message descriptor by full name
@@ -205,138 +200,4 @@ func (s *defaultDescriptorRegistry) GetMethodDescriptor(fullName string) (protor
 	defer s.methodDescriptorRegistryMu.RUnlock()
 	md, ok := s.methodDescriptorRegistry[fullName]
 	return md, ok
-}
-
-// ServerReflectionInfo handles the bi-directional reflection stream, routing each request to helpers
-func (s *defaultDescriptorRegistry) ServerReflectionInfo(
-	stream reflectionv1.ServerReflection_ServerReflectionInfoServer,
-) error {
-	for {
-		req, err := stream.Recv()
-		if err == io.EOF {
-			return nil
-		} else if err != nil {
-			return err
-		}
-
-		host := req.GetHost()
-		orig := req
-
-		switch r := req.GetMessageRequest().(type) {
-		case *reflectionv1.ServerReflectionRequest_ListServices:
-			resp := s.buildListServicesResponse(host, orig)
-			if err := stream.Send(resp); err != nil {
-				return err
-			}
-
-		case *reflectionv1.ServerReflectionRequest_FileByFilename:
-			resp := s.buildFileByFilenameResponse(host, orig, r.FileByFilename)
-			if err := stream.Send(resp); err != nil {
-				return err
-			}
-
-		case *reflectionv1.ServerReflectionRequest_FileContainingSymbol:
-			resp := s.buildFileContainingSymbolResponse(host, orig, r.FileContainingSymbol)
-			if err := stream.Send(resp); err != nil {
-				return err
-			}
-
-		default:
-			// unsupported reflection method
-			if err := stream.Send(s.errorResponse(host, orig, codes.Unimplemented, "request type not supported")); err != nil {
-				return err
-			}
-		}
-	}
-}
-
-// buildListServicesResponse constructs a response listing all registered services
-func (s *defaultDescriptorRegistry) buildListServicesResponse(host string, orig *reflectionv1.ServerReflectionRequest) *reflectionv1.ServerReflectionResponse {
-	seen := map[string]struct{}{}
-	svcResp := &reflectionv1.ListServiceResponse{}
-
-	s.allFileDescMu.RLock()
-	defer s.allFileDescMu.RUnlock()
-	for _, fd := range s.allFileDescriptors {
-		for i := 0; i < fd.Services().Len(); i++ {
-			name := string(fd.Services().Get(i).FullName())
-			if _, ok := seen[name]; !ok {
-				seen[name] = struct{}{}
-				svcResp.Service = append(svcResp.Service, &reflectionv1.ServiceResponse{Name: name})
-			}
-		}
-	}
-
-	return &reflectionv1.ServerReflectionResponse{
-		ValidHost:       host,
-		OriginalRequest: orig,
-		MessageResponse: &reflectionv1.ServerReflectionResponse_ListServicesResponse{ListServicesResponse: svcResp},
-	}
-}
-
-// buildFileByFilenameResponse finds and returns the FileDescriptorProto bytes for a given filename
-func (s *defaultDescriptorRegistry) buildFileByFilenameResponse(host string, orig *reflectionv1.ServerReflectionRequest, filename string) *reflectionv1.ServerReflectionResponse {
-	fdpBytes, found := s.lookupFileDescriptorProtoBytes(func(fd protoreflect.FileDescriptor) bool {
-		return fd.Path() == filename
-	})
-
-	if !found {
-		return s.errorResponse(host, orig, codes.NotFound, "file not found")
-	}
-	return &reflectionv1.ServerReflectionResponse{
-		ValidHost:       host,
-		OriginalRequest: orig,
-		MessageResponse: &reflectionv1.ServerReflectionResponse_FileDescriptorResponse{FileDescriptorResponse: &reflectionv1.FileDescriptorResponse{FileDescriptorProto: [][]byte{fdpBytes}}},
-	}
-}
-
-// buildFileContainingSymbolResponse returns the FileDescriptorProto bytes containing a given service or message symbol
-func (s *defaultDescriptorRegistry) buildFileContainingSymbolResponse(host string, orig *reflectionv1.ServerReflectionRequest, symbol string) *reflectionv1.ServerReflectionResponse {
-	fdpBytes, found := s.lookupFileDescriptorProtoBytes(func(fd protoreflect.FileDescriptor) bool {
-		// search services
-		for i := range fd.Services().Len() {
-			if string(fd.Services().Get(i).FullName()) == symbol {
-				return true
-			}
-		}
-		// search messages
-		for i := range fd.Messages().Len() {
-			if string(fd.Messages().Get(i).FullName()) == symbol {
-				return true
-			}
-		}
-		return false
-	})
-
-	if !found {
-		return s.errorResponse(host, orig, codes.NotFound, "symbol not found")
-	}
-	return &reflectionv1.ServerReflectionResponse{
-		ValidHost:       host,
-		OriginalRequest: orig,
-		MessageResponse: &reflectionv1.ServerReflectionResponse_FileDescriptorResponse{FileDescriptorResponse: &reflectionv1.FileDescriptorResponse{FileDescriptorProto: [][]byte{fdpBytes}}},
-	}
-}
-
-// lookupFileDescriptorProtoBytes searches allFileDescriptors using match and returns the marshaled FileDescriptorProto bytes
-func (s *defaultDescriptorRegistry) lookupFileDescriptorProtoBytes(match func(protoreflect.FileDescriptor) bool) ([]byte, bool) {
-	s.allFileDescMu.RLock()
-	defer s.allFileDescMu.RUnlock()
-	for _, fd := range s.allFileDescriptors {
-		if match(fd) {
-			fdp := protodesc.ToFileDescriptorProto(fd)
-			b, _ := proto.Marshal(fdp)
-			return b, true
-		}
-	}
-	return nil, false
-}
-
-// errorResponse constructs a standard reflection error response with the given code and message
-func (s *defaultDescriptorRegistry) errorResponse(host string, orig *reflectionv1.ServerReflectionRequest, code codes.Code, msg string) *reflectionv1.ServerReflectionResponse {
-	return &reflectionv1.ServerReflectionResponse{
-		ValidHost:       host,
-		OriginalRequest: orig,
-		MessageResponse: &reflectionv1.ServerReflectionResponse_ErrorResponse{ErrorResponse: &reflectionv1.ErrorResponse{ErrorCode: int32(code), ErrorMessage: msg}},
-	}
 }

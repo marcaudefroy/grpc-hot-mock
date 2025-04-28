@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/history"
@@ -46,6 +45,11 @@ func Handler(
 			if p == nil {
 				return status.Errorf(codes.Unimplemented, "No mock found for %s and proxy isn't enabled", fullMethod)
 			}
+			wrappedStream, ok := stream.(*wrappedServerStream)
+			if ok {
+				wrappedStream.proxified = true
+			}
+
 			if grpclog.V(2) {
 				grpclog.Infof("[UnknownServiceHandler] No mock found, handle request by the proxy")
 			}
@@ -55,10 +59,6 @@ func Handler(
 		dynReq := dynamicpb.NewMessage(methodDescriptor.Input())
 		if err := stream.RecvMsg(dynReq); err != nil {
 			return status.Errorf(codes.Internal, "failed to receive message: %v", err)
-		}
-		jsonBytes, err := protojson.Marshal(dynReq)
-		if err != nil {
-			fmt.Printf("Erreur lors de la conversion en JSON : %v\n", err)
 		}
 
 		if grpclog.V(2) {
@@ -87,20 +87,6 @@ func Handler(
 			return status.Errorf(codes.Internal, "json→message: %v", err)
 		}
 
-		history := history.History{
-			Date: time.Now(),
-			Request: history.Request{
-				FullName:      string(methodDescriptor.FullName()),
-				PayloadString: string(jsonBytes),
-				Payload:       jsonBytes,
-			},
-			Response: history.Response{
-				Status:        int(mc.GrpcStatus),
-				PayloadString: string(raw),
-				Payload:       mc.MockResponse,
-			},
-		}
-		historyRegistry.RegisterHistory(history)
 		return stream.SendMsg(dyn)
 	}
 }

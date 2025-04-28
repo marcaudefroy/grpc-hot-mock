@@ -158,3 +158,13 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
+
+func (s *Server) cleanHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.historyRegistry.Clean()
+	w.WriteHeader(http.StatusOK)
+}

@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	reflectionv1 "google.golang.org/grpc/reflection/grpc_reflection_v1"
+	reflectionv1alpha "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 )
 
 // NewServer creates a grpc.Server with:
@@ -33,7 +34,14 @@ func NewServer(
 	srv := grpc.NewServer(
 		grpc.UnknownServiceHandler(Handler(mockRegistry, descriptorRegistry, historyRegistry, p)),
 		grpc.ForceServerCodecV2(proxy.NewDefaultMultiplexCodec()),
+		grpc.StreamInterceptor(StreamInterceptor(historyRegistry)),
 	)
-	reflectionv1.RegisterServerReflectionServer(srv, descriptorRegistry)
+	serverReflectionV1 := reflection.NewServerReflectionV1(descriptorRegistry)
+	serverReflectionV1alpha := reflection.NewServerReflectionV1Alpha(descriptorRegistry)
+
+	reflectionv1.RegisterServerReflectionServer(srv, serverReflectionV1)
+
+	// DEPRECATED but still used by some client on production
+	reflectionv1alpha.RegisterServerReflectionServer(srv, serverReflectionV1alpha)
 	return srv
 }

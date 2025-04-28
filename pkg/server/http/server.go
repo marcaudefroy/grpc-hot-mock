@@ -12,11 +12,11 @@ import (
 type Server struct {
 	mockRegistry       mocks.Registry
 	descriptorRegistry reflection.DescriptorRegistry
-	historyRegistry    history.RegistryReader
+	historyRegistry    history.RegisterReadWriter
 }
 
 // NewServer returns an http.ServeMux with all config routes registered.
-func NewServer(dr reflection.DescriptorRegistry, mr mocks.Registry, hr history.RegistryReader) *http.ServeMux {
+func NewServer(dr reflection.DescriptorRegistry, mr mocks.Registry, hr history.RegisterReadWriter) *http.ServeMux {
 	mux := http.NewServeMux()
 	s := &Server{mockRegistry: mr, descriptorRegistry: dr, historyRegistry: hr}
 	mux.HandleFunc("/upload-proto", s.handleUploadProto)
@@ -25,5 +25,6 @@ func NewServer(dr reflection.DescriptorRegistry, mr mocks.Registry, hr history.R
 	mux.HandleFunc("/compile", s.handleCompile)
 	mux.HandleFunc("/mocks", s.handleAddMock)
 	mux.HandleFunc("/history", s.handleHistory)
+	mux.HandleFunc("/history/clean", s.cleanHistory)
 	return mux
 }

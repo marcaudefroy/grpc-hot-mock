@@ -1,0 +1,2 @@
+server_http: http://localhost:8080
+server_grpc: localhost:50051

@@ -11,8 +11,6 @@ import (
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/mocks"
 	"github.com/marcaudefroy/grpc-hot-mock/pkg/reflection"
 
-	"github.com/stretchr/testify/assert"
-
 	grpcServer "github.com/marcaudefroy/grpc-hot-mock/pkg/server/grpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -110,11 +108,21 @@ service Greeter{rpc SayHello(HelloRequest) returns(HelloReply);}`
 
 	hr := &history.DefaultRegistry{}
 
+	interceptor := grpcServer.StreamInterceptor(hr)
 	handler := grpcServer.Handler(mr, dr, hr, nil)
+
+	wrappedHandler := func(srv any, stream grpc.ServerStream) error {
+		return interceptor(srv, stream, &grpc.StreamServerInfo{
+			FullMethod:     "/example.Greeter/SayHello",
+			IsClientStream: true,
+			IsServerStream: true,
+		}, handler)
+	}
+
 	stream := newFakeServerStream("/example.Greeter/SayHello")
 	stream.recvData = map[string]any{"name": "world"}
 
-	if err := handler(nil, stream); err != nil {
+	if err := wrappedHandler(nil, stream); err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
 
@@ -143,29 +151,56 @@ service Greeter{rpc SayHello(HelloRequest) returns(HelloReply);}`
 	}
 
 	histories := hr.GetHistories()
+	if len(histories) != 1 {
+		t.Fatalf("expected 1 history, got %d", len(histories))
+	}
 
-	assert.Len(t, histories, 1, "Expected 1 history")
 	h := histories[0]
-	assert.Equal(t, "example.Greeter.SayHello", h.Request.FullName, "FullName on request should be correct")
+	if h.FullMethod != "/example.Greeter/SayHello" {
+		t.Errorf("unexpected FullMethod, got %s", h.FullMethod)
+	}
 
-	expectedJSON, err := json.Marshal(stream.recvData)
-	assert.NoError(t, err, "Error while serializing stream.recvData")
+	if len(h.Messages) != 2 {
+		t.Fatalf("expected 2 messages (recv + send), got %d", len(h.Messages))
+	}
 
-	payloadBytes, ok := h.Request.Payload.([]byte)
-	assert.True(t, ok, "h.Request.Payload should be []byte")
+	recv := h.Messages[0]
+	if recv.Direction != "recv" {
+		t.Errorf("expected first message direction 'recv', got %s", recv.Direction)
+	}
+	if !recv.Recognized {
+		t.Errorf("expected recognized=true on recv")
+	}
+	if recv.Proxified {
+		t.Errorf("expected proxified=false on recv")
+	}
+	var recvPayload map[string]string
+	rawRecv, _ := json.Marshal(recv.Payload)
+	_ = json.Unmarshal(rawRecv, &recvPayload)
+	if recvPayload["name"] != "world" {
+		t.Errorf("expected recv payload name=world, got %v", recvPayload)
+	}
 
-	assert.JSONEq(t, string(expectedJSON), string(payloadBytes), "Payload on request should be correct")
+	send := h.Messages[1]
+	if send.Direction != "send" {
+		t.Errorf("expected second message direction 'send', got %s", send.Direction)
+	}
+	if !send.Recognized {
+		t.Errorf("expected recognized=true on send")
+	}
+	if send.Proxified {
+		t.Errorf("expected proxified=false on send")
+	}
+	var sendPayload map[string]string
+	rawSend, _ := json.Marshal(send.Payload)
+	_ = json.Unmarshal(rawSend, &sendPayload)
+	if sendPayload["message"] != "hi" {
+		t.Errorf("expected send payload message=hi, got %v", sendPayload)
+	}
 
-	assert.Equal(t, int(codes.OK), h.Response.Status, "Status on response should be correct")
-	assert.Equal(t, string("{\"message\":\"hi\"}"), h.Response.PayloadString, "PayloadString on response should be correct")
-
-	expectedJSON, err = json.Marshal(mc.MockResponse)
-	assert.NoError(t, err, "Error while serializing mc.MockResponse")
-
-	actualJSON, err := json.Marshal(h.Response.Payload)
-	assert.NoError(t, err, "Error while serializing h.Response.Payload")
-
-	assert.JSONEq(t, string(expectedJSON), string(actualJSON), "Payload on response should be correct")
+	if h.State != history.StateClosed {
+		t.Errorf("expected status OK, got %s", h.State)
+	}
 }
 
 func TestHandler_GrpcStatusError(t *testing.T) {

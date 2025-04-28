@@ -119,12 +119,14 @@ message FooReq {
 		t.Fatalf("batch compile failed: %v", err)
 	}
 
+	serverReflectionV1 := reflection.NewServerReflectionV1(registry)
+
 	// List services via reflection
 	req := &reflectionv1.ServerReflectionRequest{
 		MessageRequest: &reflectionv1.ServerReflectionRequest_ListServices{ListServices: ""},
 	}
 	stream := &fakeStream{requests: []*reflectionv1.ServerReflectionRequest{req}}
-	if err := registry.ServerReflectionInfo(stream); err != nil {
+	if err := serverReflectionV1.ServerReflectionInfo(stream); err != nil {
 		t.Fatalf("ListServices RPC failed: %v", err)
 	}
 	if len(stream.responses) != 1 {
@@ -149,6 +151,8 @@ message FooReq {
 // Test FileByFilename success and fallback error
 func TestServerReflection_FileByFilename(t *testing.T) {
 	registry := reflection.NewDefaultDescriptorRegistry()
+	serverReflectionV1 := reflection.NewServerReflectionV1(registry)
+
 	// Register a simple proto
 	hello := `syntax = "proto3"; package example; message A {}`
 	if err := registry.RegisterProtoFile("hello.proto", hello); err != nil {
@@ -159,7 +163,7 @@ func TestServerReflection_FileByFilename(t *testing.T) {
 		MessageRequest: &reflectionv1.ServerReflectionRequest_FileByFilename{FileByFilename: "hello.proto"},
 	}
 	stream := &fakeStream{requests: []*reflectionv1.ServerReflectionRequest{reqSuccess}}
-	if err := registry.ServerReflectionInfo(stream); err != nil {
+	if err := serverReflectionV1.ServerReflectionInfo(stream); err != nil {
 		t.Fatalf("RPC error: %v", err)
 	}
 	resp := stream.responses[0]
@@ -182,7 +186,7 @@ func TestServerReflection_FileByFilename(t *testing.T) {
 		MessageRequest: &reflectionv1.ServerReflectionRequest_FileByFilename{FileByFilename: "nope.proto"},
 	}
 	stream2 := &fakeStream{requests: []*reflectionv1.ServerReflectionRequest{reqFail}}
-	if err := registry.ServerReflectionInfo(stream2); err != nil {
+	if err := serverReflectionV1.ServerReflectionInfo(stream2); err != nil {
 		t.Fatalf("RPC error: %v", err)
 	}
 	r := stream2.responses[0]
@@ -198,6 +202,8 @@ func TestServerReflection_FileByFilename(t *testing.T) {
 // Test FileContainingSymbol success
 func TestServerReflection_FileContainingSymbol(t *testing.T) {
 	registry := reflection.NewDefaultDescriptorRegistry()
+	serverReflectionV1 := reflection.NewServerReflectionV1(registry)
+
 	hello := `syntax = "proto3"; package ex;
 service Svc { rpc M1(M1Req) returns (M1Req); }
 message M1Req {}`
@@ -209,7 +215,7 @@ message M1Req {}`
 		MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingSymbol{FileContainingSymbol: "ex.Svc"},
 	}
 	stream := &fakeStream{requests: []*reflectionv1.ServerReflectionRequest{req}}
-	if err := registry.ServerReflectionInfo(stream); err != nil {
+	if err := serverReflectionV1.ServerReflectionInfo(stream); err != nil {
 		t.Fatalf("RPC error: %v", err)
 	}
 	resp := stream.responses[0]
